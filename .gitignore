@@ -1,0 +1,51 @@
+# Build and Release Folders
+bin-debug/
+bin-release/
+[Oo]bj/
+[Bb]in/
+
+# Other files and folders
+.settings/
+
+# tables
+*.xlsx
+*.csv
+
+# Executables
+*.swf
+*.air
+*.ipa
+*.apk
+
+# Project files, i.e. `.project`, `.actionScriptProperties` and `.flexProperties`
+# should NOT be excluded as they contain compiler settings and other important
+# information for Eclipse / Flash Builder.
+
+# pickle
+*.pkl
+*.iml
+
+# verilog
+*.vvp
+*.vcd
+#*.v
+*.syn
+*.log
+*.mr
+*.pvl
+*.swp
+*.svf
+*.alib
+*.rpt
+*.out
+log.txt
+
+#idea
+*.xml
+
+test.py
+test2.py
+
+*.pyc
+
+*.docx
