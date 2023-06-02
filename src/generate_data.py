@@ -1,7 +1,6 @@
 import networkx as nx
-from matplotlib import pyplot as plt
 import random
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple
 import pyverilog
 from pyverilog.vparser.parser import parse
 import re
@@ -148,7 +147,7 @@ class DcParser:
             # print(mfunc,mname)
             for fo in fanouts:
                 if mfunc == "HADD":
-                    if fo.portname == "SO":
+                    if fo.portname == "S0":
                         ntype = self.hadd_name_dict["hadd_s"]
                     elif fo.portname == "C1":
                         ntype = self.hadd_name_dict["hadd_c"]

@@ -15,19 +15,19 @@ from torch.nn.parameter import Parameter
 from generate_data import *
 import pickle
 
+options = get_options()
 
 def parse_single_file(nodes,edges,output_node):
     # nodes: list of (node, {"type": type}) here node is a str ,like 'n123' or '1'b1'
     # note that here node type does not include buf /not
-    label2id = {"1'b0": 0, "1'b1": 1, 'DFF': 2, 'DFFSSR': 3, 'DFFAS': 4, 'NAND': 5, 'AND': 6,
-                'OR': 7, 'DELLN': 8, 'INV': 9, 'NOR': 10, 'XOR': 11, 'MUX': 12, 'XNOR': 13,
-                'MAJ': 14, 'PI': 15}
+    label2id = {'NAND': 0, 'AND': 1,
+                'OR': 2,  'INV': 3, 'NOR': 4, 'XOR': 5, 'MUX': 6, 'XNOR': 7,
+                'MAJ': 8, 'PI': 9}
     #print(nodes)
     #print(edges)
     nid = 0
     node2id = {}
     id2node = {}
-    output_nid = None
     ntype = th.zeros((len(nodes), len(label2id.keys())), dtype=th.float)
     for n in nodes:
         if node2id.get(n[0]) is None:
@@ -37,8 +37,6 @@ def parse_single_file(nodes,edges,output_node):
             if re.search("\d", type):
                 type = type[: re.search("\d", type).start()]
             ntype[nid][label2id[type]] = 1
-            if n[0] == output_node:
-                output_nid = nid
             nid += 1
 
     src_nodes = []
@@ -51,122 +49,63 @@ def parse_single_file(nodes,edges,output_node):
         (th.tensor(src_nodes), th.tensor(dst_nodes)), num_nodes=len(node2id)
     )
     graph.ndata["ntype"] = ntype
-    PIs = th.tensor(range(graph.number_of_nodes()))[th.argmax(ntype,dim=1).squeeze(-1)==15]\
-        .numpy().tolist()
-    #if len(PIs)!=get_options().num_input:
-    #print(PIs,output_nid)
-    #assert len(PIs)==get_options().num_input
-    #print(graph.nodes())
-    depth = cal_depth(graph,PIs,output_nid)
-    return graph,output_nid,depth
 
-    
-class Dataset_gcl(DGLDataset):
-    def __init__(self,datapath):
-        self.datapath = datapath
-        super(Dataset_gcl, self).__init__(name="dac")
-        # self.alpha = Parameter(th.tensor([1]))
+    topo = dgl.topological_nodes_generator(graph)
 
-    def process(self):
-        type2label = {"ling_adder":1,"hybrid_adder":2, "cond_sum_adder":3, "sklansky_adder":4, "brent_kung_adder":5, "bounded_fanout_adder":6,"unknown":7}
-        self.graphs = []
-        self.len = 0
-        max_depth = 0
-        options = get_options()
-        start_nid = 0
-        self.POs = []
+    return graph,topo
 
-        self.aug_graphs = [[],[],[]]
-        self.len = 0
-        aug_max_depth = [0,0,0]
 
-        start_nid = 0
-        aug_start_nids = [0,0,0]
-        self.aug_POs = [[],[],[]]
-        # with open(os.path.join(self.datapath,'split{}.pkl'.format(self.split)),'rb') as f:
-        #     filelist = pickle.load(f)
-        # print(len(filelist))
-        filelist = os.listdir(self.datapath)
-        print(len(filelist))
-        # print('file list{} start with {}'.format(self.split,filelist[0]))
+class Aug_graph:
+    def __init__(self,graph,topo,PO,size):
+        self.graph = graph
+        self.topo = topo
+        self.PO =PO
+        self.size = size
+
+if __name__ == "__main__":
+    options = get_options()
+    th.multiprocessing.set_sharing_strategy('file_system')
+    device = th.device("cuda:" + str(options.gpu) if th.cuda.is_available() else "cpu")
+    save_path = options.datapath
+    if not os.path.exists(os.path.join(save_path, 'i{}'.format(options.num_input))):
+        os.makedirs(os.path.join(save_path, 'i{}'.format(options.num_input)))
+    data_file = os.path.join(save_path, 'i{}/origin.pkl'.format(options.num_input))
+
+    if os.path.exists(data_file) is False:
+        rawdata_path = "../truthtables/i{}/implementation/".format(options.num_input)
+        th.multiprocessing.set_sharing_strategy('file_system')
+
+        orign_graphs = []
+        positive_pairs = [[], [], []]
+        filelist = os.listdir(rawdata_path)
+        print('#cases:',len(filelist))
         for vf in filelist:
-            if not vf.endswith('.v') or not os.path.exists(os.path.join(self.datapath,vf)):
+            if not vf.endswith('.v') or not os.path.exists(os.path.join(rawdata_path, vf)):
                 continue
-            #PO = []
             print('\ngenerate positive samples for {}'.format(vf))
             value = vf.split('_')[2].split('.')[0][1:]
             parser = DcParser('i{}_v{}'.format(options.num_input, value))
-            output_node, nodes, edges = parser.parse(os.path.join(self.datapath, vf))
+            output_node, nodes, edges = parser.parse(os.path.join(rawdata_path, vf))
             if len(nodes) == 0:
                 print('empty...')
                 continue
-            original_graph, original_PO, original_depth = parse_single_file(nodes, edges, output_node)
-            self.POs.append(original_PO+start_nid)
-            #PO.append((original_PO+start_nid,original_depth))
-            self.graphs.append(original_graph)
-            start_nid += original_graph.number_of_nodes()
-            #print('depth:',original_depth)
-            if original_depth>max_depth:
-                max_depth = original_depth
-            for num2replace in range(1,4):
+            original_graph, original_topo = parse_single_file(nodes, edges, output_node)
+            orign_graphs.append((original_graph, original_topo))
+
+            for num2replace in range(1, 4):
+                positive_pair = [None,None]
                 for i in range(2):
-                    print('generating positive sample{}, num replaced = {}'.format(i,num2replace))
-                    new_nodes, new_edges,output_nid = transform(nodes, edges, output_node,num2replace,options)
-                    new_graph, new_PO, new_depth = parse_single_file(new_nodes, new_edges, output_nid)
-                    self.aug_POs[num2replace-1].append(new_PO+aug_start_nids[num2replace-1])
-                    self.aug_graphs[num2replace-1].append(new_graph)
-                    aug_start_nids[num2replace-1] += new_graph.number_of_nodes()
-                    if new_depth>aug_max_depth[num2replace-1]:
-                        aug_max_depth[num2replace-1] = new_depth
-                    #print('depth:',new_depth)
-        self.depth = max_depth
-        self.aug_depth = aug_max_depth
-        self.batch_graph = dgl.batch(self.graphs)
-        self.aug_batch_graphs =  []
-        for i in range(3):
-            self.aug_batch_graphs.append(dgl.batch(self.aug_graphs[i]))
-
-    def __len__(self):
-        return self.len
-
-
-def change_order(nids,width):
-    res = []
-    if len(nids) % width !=0 :
-        print('num of IO is wrong')
-        assert False
-    num_modules = int(len(nids) / width)
-    for bit_index in range(width):
-        for module_index in range(num_modules):
-            res.append(nids[width*module_index+bit_index])
-    return res
-def cal_depth(g,PIs,output_nid):
-    g = g.to_networkx()
-    depth = 0
-    dst = output_nid
-    for src in PIs:
-        #print('src',id2nodes[src])
-        max_path_length = 0
-        #for dst in PIs[2*i:2*i+2]:
-        path = None
-        if nx.has_path(g, src, dst):
-            for p in nx.all_simple_paths(g, src, dst):
-                if len(p) > max_path_length:
-                    max_path_length = len(p)
-                    path = p
-        #print('src:{},dst:{},path:{}'.format(src,dst,path))
-        depth = max(depth,max_path_length-1)
-
-    return depth
-
-
-if __name__ == "__main__":
-    random.seed(726)
-    datapaths = ["../dc/sub/implementation/test/"]
-
-    th.multiprocessing.set_sharing_strategy('file_system')
-    # print(dataset_not_edge.Dataset_n)
-    dataset = Dataset_sub("adder", 32,datapaths, None)
-
-    # graph = parse_single_file('../util1/adder4_d0.00_auto_adder.v')
-    # print(graph)
+                    print('generating positive sample{}, num replaced = {}'.format(i, num2replace))
+                    new_nodes, new_edges, output_nid = transform(nodes, edges, output_node, num2replace, options)
+                    new_graph, new_topo = parse_single_file(new_nodes, new_edges, output_nid)
+                    positive_pair[i] = Aug_graph(new_graph, new_topo, new_topo[-1].item(),
+                                                 new_graph.number_of_nodes()) # graph, topo_levels, PO, size
+                    positive_pairs[num2replace - 1].append(positive_pair)
+        # print(dataset.batch_graph.ndata)
+        save_file = os.path.join(save_path, 'i{}/origin.pkl'.format(options.num_input))
+        with open(save_file, 'wb') as f:
+            pickle.dump(orign_graphs, f)
+        for j in range(3):
+            save_file = os.path.join(save_path, 'i{}/aug{}.pkl'.format(options.num_input, j + 1))
+            with open(save_file, 'wb') as f:
+                pickle.dump(positive_pairs[j], f)

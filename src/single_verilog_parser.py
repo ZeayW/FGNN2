@@ -150,7 +150,7 @@ class DcParser:
                 if port_info.is_output:
                     #output_node = port_info.argname
                     POs.append(port_info.argname)
-                if port_info.ptype== "fanin" :
+                if port_info.ptype == "fanin":
                     fanins.append(port_info)
                 elif port_info.ptype == "fanout" :
                     fanouts.append(port_info)
@@ -161,7 +161,7 @@ class DcParser:
             # print(mfunc,mname)
             for fo in fanouts:
                 if mfunc == "HADD":
-                    if fo.portname == "SO":
+                    if fo.portname == "S0":
                         ntype = self.hadd_name_dict["hadd_s"]
                     elif fo.portname == "C1":
                         ntype = self.hadd_name_dict["hadd_c"]
