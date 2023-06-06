@@ -1,31 +1,77 @@
 """Torch Module for FunctionConv layer"""
 
-import torch
+import torch as th
 from torch import nn
 from dgl import function as fn
 
+class Projection_Head(nn.Module):
+    def __init__(self,
+                 in_feats,
+                 out_feats,
+                 bias=True,
+                 activation=th.relu,
+                 ):
+        super(Projection_Head, self).__init__()
+        self.layers = nn.ModuleList()
+        self.activation = activation
 
-class FunctionConv(nn.Module):
+        hidden_feats = int(in_feats / 2)
+        self.layers.append(nn.Linear(in_feats, hidden_feats, bias=bias))
+        self.layers.append(nn.Linear(hidden_feats, out_feats, bias=bias))
+        gain = nn.init.calculate_gain('relu')
+        for layer in self.layers:
+            nn.init.xavier_uniform_(layer.weight, gain=gain)
+
+    def forward(self, features):
+        h = features
+        h = self.activation(self.layers[0](h))
+        h = self.layers[1](h).squeeze(-1)
+
+        return h
+
+class MLP(th.nn.Module):
+    def __init__(self, *sizes, batchnorm=False, dropout=False):
+        super().__init__()
+        fcs = []
+        for i in range(1, len(sizes)):
+            fcs.append(th.nn.Linear(sizes[i - 1], sizes[i]))
+            if i < len(sizes) - 1:
+                fcs.append(th.nn.LeakyReLU(negative_slope=0.2))
+                if dropout: fcs.append(th.nn.Dropout(p=0.2))
+                if batchnorm: fcs.append(th.nn.BatchNorm1d(sizes[i]))
+        self.layers = th.nn.Sequential(*fcs)
+
+    def forward(self, x):
+        return self.layers(x)
+
+class FuncConv(nn.Module):
 
     def __init__(self,
                  ntypes,
-                 in_feats,
-                 out_feats,
+                 hidden_dim,
+                 out_dim,
+                 flag_proj = False,
                  activation=None):
-        super(FunctionConv, self).__init__()
+        super(FuncConv, self).__init__()
 
         # initialize the gate functions, each for one gate type, e.g., AND, OR, XOR...
+        self.hidden_dim = hidden_dim
+        self.out_dim =out_dim
+        self.flag_proj = flag_proj
         self.gate_functions = nn.ModuleList()
         for i in range(ntypes):
-            self.gate_functions.append(nn.Linear(in_feats,out_feats))
+            self.gate_functions.append(
+                MLP(hidden_dim,int(hidden_dim/2),int(hidden_dim/2),hidden_dim)
+            )
+            # self.gate_functions.append(nn.Linear(hidden_dim,hidden_dim))
 
         # set some attributes
         self.ntypes =ntypes
-        self._out_feats = out_feats
+        #self._out_feats = out_feats
         self.activation = activation
-
+        if flag_proj: self.proj = MLP(hidden_dim,int(hidden_dim/2),int(hidden_dim/2),out_dim)
         # initialize the parameters
-        self.reset_parameters()
+        # self.reset_parameters()
 
     def reset_parameters(self):
         r"""
@@ -43,7 +89,8 @@ class FunctionConv(nn.Module):
         gain = nn.init.calculate_gain('relu')
         for i in range(self.ntypes):
             nn.init.xavier_uniform_(self.gate_functions[i].weight, gain=gain)
-
+        if self.flag_proj:
+            nn.init.xavier_uniform_(self.proj.weight, gain=gain)
     def apply_nodes_func(self,nodes):
         r"""
 
@@ -69,13 +116,14 @@ class FunctionConv(nn.Module):
 
         # for each gate type, use an independent aggregator (function) to aggregate the messages
         for i in range(self.ntypes):
-            mask = gate_types==i    # nodes of type i
+            mask = gate_types==i    # nodes of type
+            #print(i,mask)
             #print(self.gate_functions[i].weight.shape, gate_inputs[mask].shape,self.gate_functions[i](gate_inputs[mask]))
-            res[mask] = self.gate_functions[i](gate_inputs[mask])
+            if len(gate_inputs[mask])!=0: res[mask] = self.gate_functions[i](gate_inputs[mask])
 
-        return {'rst':res}
+        return {'h':res}
 
-    def forward(self,act_flag, graph, feat):
+    def forward(self, graph, topo,PO_mask):
         r"""
 
         Description
@@ -101,29 +149,14 @@ class FunctionConv(nn.Module):
             The output feature of shape :math:`(N, D_{out})` where :math:`D_{out}`
             is size of output feature.
         """
-
+        #print(graph.ndata['h'])
         with graph.local_scope():
-            feat_src = feat
+            for i, nodes in enumerate(topo[1:]):
+                graph.pull(nodes, fn.copy_src('h', 'm'), fn.mean('m', 'neigh'), self.apply_nodes_func)
 
-            graph.srcdata['h'] = feat_src
-            r"""
-            update_all is used to reduce and aggregate the messages 
-            parameters:
-                message_func (dgl.function.BuiltinFunction or callable) 
-                    The message function to generate messages along the edges. 
-                    It must be either a DGL Built-in Function or a User-defined Functions.
-                reduce_func (dgl.function.BuiltinFunction or callable) 
-                    The reduce function to aggregate the messages. 
-                    It must be either a DGL Built-in Function or a User-defined Functions.
-                apply_node_func (callable, optional) 
-                    An optional apply function to further update the node features after 
-                    the message reduction. It must be a User-defined Functions.
-            """
-            # we used mean as the reduce function , and a self-defined function as the apply function
-            #print(feat_src.shape)
-            graph.update_all(fn.copy_src('h', 'm'), fn.mean('m', 'neigh'),self.apply_nodes_func)
-            rst = graph.dstdata['rst']
-            if act_flag and self.activation is not None:
-                rst = self.activation(rst)
-
+            rst = graph.ndata['h'][PO_mask]
+            # if self.activation is not None:
+            #     rst = self.activation(rst)
+            if self.flag_proj:
+                rst = self.proj(rst)
             return rst

@@ -3,11 +3,14 @@ import argparse
 
 def get_options(args=None):
     parser = argparse.ArgumentParser()
+    parser.add_argument("--checkpoint",type=str,default=None,help= "checkpoint to save the results and logs")
+    parser.add_argument("--start_iter",type=int, default=None, help="used for continuing training from a specific checkpoint")
+    parser.add_argument("--ntypes", type=int, help='the number of gate types. Type: int', default=10)
     parser.add_argument("--learning_rate", type=float, help = 'the learning rate for training. Type: float.',default=1e-3)
     parser.add_argument("--batch_size", type=int, help = 'the number of samples in each training batch. Type: int',default=1024)
     parser.add_argument("--num_epoch", type=float, help='Type: int; number of epoches that the training procedure runs. Type: int',default=1500)
-    parser.add_argument("--in_dim", type=int, help='the dimension of the input feature. Type: int',default=16)
-    parser.add_argument("--out_dim", type=int, help='the dimension of the output embedding. Type: int',default=256)
+    parser.add_argument("--in_dim", type=int, help='the dimension of the input feature. Type: int',default=9)
+    parser.add_argument("--out_dim", type=int, help='the dimension of the output embedding. Type: int', default=256)
     parser.add_argument("--hidden_dim", type=int, help='the dimension of the intermediate GNN layers. Type: int',default=256)
     parser.add_argument("--out_nlayers", type=int,help='number of GNN layers for the fanout direction. Type: int',default=2)
     parser.add_argument("--in_nlayers", type=int,help='number of GNN layers for the fanin direction. Type: int',default=2)
