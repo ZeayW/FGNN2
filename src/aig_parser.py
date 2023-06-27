@@ -31,9 +31,9 @@ def parse_single_file(file_path,required_input):
     with open(file_path, 'r') as f:
         context = f.readlines()
     ntype2id = {
-        'PI': 0,
-        'NOT': 1,
-        'AND': 2
+        'NOT': 0,
+        'AND': 1,
+        'PI': 2,
     }
     nodes: List[Tuple[str, Dict[str, str]]] = []  # a list of (node, {"type": type})
     # edges: List[Tuple[str, str, Dict[str, bool]]] = []  # a list of (src, dst, {"is_reverted": is_reverted})
@@ -77,15 +77,40 @@ def parse_single_file(file_path,required_input):
     graph = dgl.graph(
         (th.tensor(src_nodes), th.tensor(dst_nodes)), num_nodes=len(pin2nid)
     )
-
     topo = dgl.topological_nodes_generator(graph)
 
+    graph.ndata["ntype"] = nodes_type
+    graph.ndata['ntype2'] = th.argmax(nodes_type, dim=1).squeeze(-1)
+    graph.ndata['output'] = th.zeros(graph.number_of_nodes(), dtype=th.float)
+    graph.ndata['output'][topo[-1]] = 1
+
+
     return graph, topo
+
+def test():
+    g1, topo1 = parse_single_file("../../yosys/aigs/i4/aug1/i4_v9868_1.bench",4)
+    # parse_single_file("../../yosys/aigs/i4/aug1/i4_v9868_2.bench",4)
+
+    g1.ndata['temp'] = th.ones(size=(g1.number_of_nodes(), 32),
+                                                       dtype=th.float)
+    g1.ndata['h'] = th.ones((g1.number_of_nodes(), 32), dtype=th.float)
+    from FunctionConv import FuncConv
+    model = FuncConv(
+                ntypes=2,
+                hidden_dim=32,
+                out_dim = 32
+            )
+    embeddings = model(g1,topo1,None)
+    print(embeddings)
+    for i,nids in enumerate(topo1):
+        print('topo_level {}, nids: {}'.format(i,nids))
+        print('\t embeddings:',embeddings[nids])
 
 
 if __name__ == "__main__":
     options = get_options()
 
+    per2replace = options.per2replace
     save_path = options.datapath
     rawdata_path = options.rawdata_path
     if not os.path.exists(os.path.join(save_path, 'i{}'.format(options.num_input))):
@@ -104,7 +129,7 @@ if __name__ == "__main__":
             th.multiprocessing.set_sharing_strategy('file_system')
 
             orign_graphs = []
-            positive_pairs = [[], [], []]
+            positive_pairs = [[], [], [],[]]
             #filelist = os.listdir(rawdata_path)
 
             #print('#cases:', len(filelist)
@@ -116,39 +141,39 @@ if __name__ == "__main__":
                 # if not vf.endswith('.v') or not os.path.exists(os.path.join(rawdata_path, vf)):
                 #     continue
                 required_input, value = aig_name.split('_')
+                value = value[1:]
                 required_input = int(required_input[1:])
-                code = bin(int(value[1:], 10))[2:].zfill(pow(2, required_input))
+                code = bin(int(value, 10))[2:].zfill(pow(2, required_input))
 
                 original_graph, original_topo = parse_single_file(aig_file_path,required_input)
                 if original_graph is None:
                     continue
                 orign_graphs.append((original_graph, original_topo,code))
 
-                for per2replace in [1,2,3,5]:
+                for j in range(len(per2replace)):
                     positive_pair = [None, None]
 
-                    for i in range(2):
+                    for i in [1,2]:
                         augAig_file_path = os.path.join(
-                            os.path.join(data_path,'aug{}'.format(per2replace)), '{}_{}.bench'.format(aig_name,i)
+                            os.path.join(data_path,'aug{}'.format(per2replace[j])), '{}_{}.bench'.format(aig_name,i)
                         )
                         if not os.path.exists(augAig_file_path):
                             break
                         aug_graph, aug_topo = parse_single_file(augAig_file_path,required_input)
                         aug_graph.ndata['v'] = int(value) * th.ones(aug_graph.number_of_nodes(), dtype=th.float)
-                        aug_graph.ndata['output'] = th.zeros(aug_graph.number_of_nodes(), dtype=th.float)
-                        aug_graph.ndata['output'][aug_topo[-1]] = 1
-                        positive_pair[i] = [code,aug_graph, aug_topo[-1].item(),
-                                            aug_graph.number_of_nodes()]  # graph, PO, size
+                        positive_pair[i-1] = [code,aug_graph, aug_topo[-1].item(),
+                                            aug_graph.number_of_nodes()]  # gr` aph, PO, size
                     if None in positive_pair:
                         continue
-                    positive_pairs[per2replace - 1].append(positive_pair)
-            print(positive_pairs[0])
+                    positive_pairs[j].append(positive_pair)
+            #print(positive_pairs[0])
             # print(dataset.batch_graph.ndata)
 
             save_file = os.path.join(save_path, 'i{}/origin.pkl'.format(options.num_input))
             with open(save_file, 'wb') as f:
                 pickle.dump(orign_graphs, f)
-            for j in [1,2,3,5]:
-                save_file = os.path.join(save_path, 'i{}/aug{}.pkl'.format(options.num_input, j ))
+            for j in range(len(per2replace)):
+                save_file = os.path.join(save_path, 'i{}/aug{}.pkl'.format(options.num_input, per2replace[j]))
                 with open(save_file, 'wb') as f:
+                    print('i{}_aug{}, #pair:{}'.format(options.num_input,per2replace[j],len(positive_pairs[j])))
                     pickle.dump(positive_pairs[j], f)

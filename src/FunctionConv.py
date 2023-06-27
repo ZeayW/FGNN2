@@ -36,8 +36,8 @@ class MLP(th.nn.Module):
         for i in range(1, len(sizes)):
             fcs.append(th.nn.Linear(sizes[i - 1], sizes[i]))
             if i < len(sizes) - 1:
-                fcs.append(th.nn.LeakyReLU(negative_slope=0.2))
-                if dropout: fcs.append(th.nn.Dropout(p=0.2))
+                fcs.append(th.nn.LeakyReLU(negative_slope=0.01))
+                if dropout: fcs.append(th.nn.Dropout(p=0.01))
                 if batchnorm: fcs.append(th.nn.BatchNorm1d(sizes[i]))
         self.layers = th.nn.Sequential(*fcs)
 

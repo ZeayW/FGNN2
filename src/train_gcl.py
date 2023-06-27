@@ -39,8 +39,8 @@ def load_data(options):
         cur_input += 1
 
     for num_input, num_aug in traindata_series:
-        if num_input == 3:
-            batch_sizes[(num_input, num_aug)] = 16
+        if num_input == 4:
+            batch_sizes[(num_input, num_aug)] = 256
         elif num_input == 5:
             batch_sizes[(num_input, num_aug)] = 350
         else:
@@ -64,12 +64,13 @@ def load_data(options):
             # train_g.ndata['f_input'] = th.ones(size=(train_g.number_of_nodes(), options.hidden_dim), dtype=th.float)
         print(len(positive_pairs))
         sampler = SubsetRandomSampler(th.arange(len(positive_pairs)))
-        loader = GraphDataLoader(MyLoader(positive_pairs), sampler=sampler,batch_size=16, drop_last=True)
+        loader = GraphDataLoader(MyLoader(positive_pairs), sampler=sampler,batch_size=batch_sizes[(num_input, num_aug)], drop_last=True)
         data_loaders.append(
             (num_input, num_aug, loader)
         )
 
     return data_loaders
+
 
 
 def init_model(options):
