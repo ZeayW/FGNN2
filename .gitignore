@@ -49,3 +49,11 @@ test2.py
 *.pyc
 
 *.docx
+
+src/ld/
+src/ld2/
+
+*.v
+*.c
+*.blif
+*.zip

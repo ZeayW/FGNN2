@@ -154,7 +154,9 @@ class FuncConv(nn.Module):
             for i, nodes in enumerate(topo[1:]):
                 graph.pull(nodes, fn.copy_src('h', 'm'), fn.mean('m', 'neigh'), self.apply_nodes_func)
 
-            rst = graph.ndata['h'][PO_mask]
+            rst = graph.ndata['h']
+            if PO_mask is not None:
+                rst = rst[PO_mask]
             # if self.activation is not None:
             #     rst = self.activation(rst)
             if self.flag_proj:
