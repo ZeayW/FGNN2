@@ -98,7 +98,7 @@ if __name__ == "__main__":
         device = th.device("cuda:" + str(options.gpu) if th.cuda.is_available() else "cpu")
 
         data_file = os.path.join(save_path, 'i{}/origin.pkl'.format(options.num_input))
-
+        os.makedirs(os.path.join(save_path, 'i{}'.format(options.num_input)), exist_ok=True)
         if os.path.exists(data_file) is False:
             data_path = "{}/i{}/".format(rawdata_path,options.num_input)
             th.multiprocessing.set_sharing_strategy('file_system')
