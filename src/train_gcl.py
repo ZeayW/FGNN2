@@ -138,7 +138,7 @@ def train(model):
             for i, samples_pair in enumerate(data_loader):
                 loss = 0
                 embeddings = [None,None]
-                for j, (graph, PO_nids, sizes) in enumerate(samples_pair):
+                for j, (code,graph, PO_nids, sizes) in enumerate(samples_pair):
                     graph.ndata['temp'] = th.ones(size=(graph.number_of_nodes(), options.hidden_dim),
                                                    dtype=th.float)
                     graph.ndata['h'] = th.ones((graph.number_of_nodes(), model.hidden_dim), dtype=th.float)
