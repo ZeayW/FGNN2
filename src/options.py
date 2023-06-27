@@ -3,6 +3,8 @@ import argparse
 
 def get_options(args=None):
     parser = argparse.ArgumentParser()
+    parser.add_argument('--design',type=str)
+    parser.add_argument('--rawdata_path', type=str, help='the directory that contains the raw dataset. Type: str')
     parser.add_argument("--checkpoint",type=str,default=None,help= "checkpoint to save the results and logs")
     parser.add_argument("--start_iter",type=int, default=None, help="used for continuing training from a specific checkpoint")
     parser.add_argument("--ntypes", type=int, help='the number of gate types. Type: int', default=10)
