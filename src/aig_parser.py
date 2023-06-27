@@ -87,6 +87,7 @@ if __name__ == "__main__":
     options = get_options()
 
     save_path = options.datapath
+    rawdata_path = options.rawdata_path
     if not os.path.exists(os.path.join(save_path, 'i{}'.format(options.num_input))):
         os.makedirs(os.path.join(save_path, 'i{}'.format(options.num_input)))
     stdout_f = os.path.join(save_path, "stdout.log")
@@ -99,19 +100,19 @@ if __name__ == "__main__":
         data_file = os.path.join(save_path, 'i{}/origin.pkl'.format(options.num_input))
 
         if os.path.exists(data_file) is False:
-            rawdata_path = "../../yosys/aigs/{}/".format(options.num_input)
+            data_path = "{}/i{}/".format(rawdata_path,options.num_input)
             th.multiprocessing.set_sharing_strategy('file_system')
 
             orign_graphs = []
             positive_pairs = [[], [], []]
             #filelist = os.listdir(rawdata_path)
 
-            #print('#cases:', len(filelist))
-            for aig_file in os.listdir(rawdata_path):
+            #print('#cases:', len(filelist)
+            for aig_file in os.listdir(data_path):
                 if not aig_file.endswith('bench'):
                     continue
                 aig_name = aig_file.split('.')[0]
-                aig_file_path = os.path.join(rawdata_path,aig_file)
+                aig_file_path = os.path.join(data_path,aig_file)
                 # if not vf.endswith('.v') or not os.path.exists(os.path.join(rawdata_path, vf)):
                 #     continue
                 required_input, value = aig_name.split('_')
@@ -128,7 +129,7 @@ if __name__ == "__main__":
 
                     for i in range(2):
                         augAig_file_path = os.path.join(
-                            os.path.join(rawdata_path,'aug{}'.format(per2replace)), '{}_{}.bench'.format(aig_name,i)
+                            os.path.join(data_path,'aug{}'.format(per2replace)), '{}_{}.bench'.format(aig_name,i)
                         )
                         if not os.path.exists(augAig_file_path):
                             break
