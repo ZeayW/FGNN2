@@ -15,8 +15,17 @@ import torch as th
 from torch.utils.data import DataLoader
 from dgl.dataloading import GraphDataLoader
 from torch.utils.data.sampler import SubsetRandomSampler
+import datetime
 
+class MyLoader(th.utils.data.Dataset):
+    def __init__(self, data):
+        self.data = data
 
+    def __getitem__(self, item):
+        return self.data[item]
+
+    def __len__(self):
+        return len(self.data)
 
 options = get_options()
 device = th.device("cuda:" + str(options.gpu) if th.cuda.is_available() else "cpu")
@@ -117,6 +126,11 @@ def NCEloss(embeddings, i, j, tao):
 #     )
 #     return loss
 
+def init(seed):
+    th.manual_seed(seed)
+    th.cuda.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
 
 def train(model):
     print(options)
@@ -132,9 +146,14 @@ def train(model):
     model.train()
 
     print("----------------Start training----------------")
-    for num_input, aug_indx, data_loader in data_loaders:
-        print('Currently used curriculum: ({}, {})'.format(num_input,aug_indx))
+    cur_time = datetime.datetime.now().strftime("%Y-%m-%d-%H:%M:%S")
+    for num_input, aug_percent, data_loader in data_loaders:
+        save_path = '../checkpoints/{}/i{}_aug{}'.format(options.checkpoint, num_input, aug_percent)
+        os.makedirs(save_path,exist_ok=True)
+        print('Currently used curriculum: ({}, {})'.format(num_input,aug_percent))
         for epoch in range(options.num_epoch):
+            seed = random.randint(1, 10000)
+            init(seed)
             total_num, total_loss = 0,0
             for i, samples_pair in enumerate(data_loader):
                 loss = 0
@@ -155,6 +174,9 @@ def train(model):
                     # print(graph.ndata['output'][PO_nids])
                     # print(graph.ndata['v'][PO_nids])
                     embeddings[j] = model(graph,topo_levels,PO_nids)
+                    # if i == 0:
+                    #     print(code[:10])
+                    #     print(embeddings[j][:10])
                     #print(embeddings[j])
                 num_pair = len(embeddings[0])
                 embeddings = th.cat((embeddings[0],embeddings[1]))
@@ -164,7 +186,7 @@ def train(model):
                 loss = loss / (2*num_pair)
                 total_num += 1
                 total_loss += loss
-                #print("loss: ",loss.item())
+                # if i%10==0: print("loss: ",loss.item())
                 # backward propagation of the loss
                 optim.zero_grad()
                 loss.backward()
@@ -173,51 +195,38 @@ def train(model):
             total_loss = total_loss / total_num
             print("epoch: {}, loss: {}".format(epoch, total_loss.item()))
             if options.checkpoint:
-                save_path = '../checkpoints/{}/{}.pth'.format(options.checkpoint, epoch)
-                th.save(model.state_dict(), save_path)
-                print('saved model to', save_path)
+                #save_path = '../checkpoints/{}/i{}_aug{}/{}.pth'.format(options.checkpoint, num_input, aug_percent, epoch)
+                th.save(model.state_dict(), os.path.join(save_path,"{}.pth".format(epoch)))
+                print('saved model to', os.path.join(save_path,"{}.pth".format(epoch)))
             if total_loss.item() < loss_thred:
                 print('train loss beyond thredshold, change to the next curriculum setting')
                 break
 
-def init(seed):
-    th.manual_seed(seed)
-    th.cuda.manual_seed(seed)
-    np.random.seed(seed)
-    random.seed(seed)
 
 if __name__ == "__main__":
-    seed = random.randint(1, 10000)
-    seed = 9294
-    init(seed)
-    if options.start_iter:
-        assert options.checkpoint, 'no checkpoint dir specified'
-        model_save_path = '../checkpoints/{}/{}.pth'.format(options.checkpoint, options.start_iter)
-        assert os.path.exists(model_save_path), 'start_iter {} of checkpoint {} does not exist'.\
-            format(options.start_iter, options.checkpoint)
-        options = th.load('../checkpoints/{}/options.pkl'.format(options.checkpoint))
-        model = init_model(options).to(device)
-        model.load_state_dict(th.load(model_save_path))
-        stdout_f = '../checkpoints/{}/stdout_{}.log'.format(options.checkpoint,options.start_iter)
-        stderr_f = '../checkpoints/{}/stderr_{}.log'.format(options.checkpoint,options.start_iter)
-        with tee.StdoutTee(stdout_f), tee.StderrTee(stderr_f):
-            print("continue training from {}".format(options.start_iter))
-            print('seed:',seed)
-            train(model)
+    # seed = random.randint(1, 10000)
+    # seed = 9294
+    # init(seed)
 
-    elif options.checkpoint:
-        print('saving logs and models to ../checkpoints/{}'.format(options.checkpoint))
+    model = init_model(options).to(device)
+    if options.start_point:
+        pretrained_path = '../checkpoints/{}'.format(options.start_point)
+        assert os.path.exists(pretrained_path), 'start_point {} does not exist'.\
+            format(options.start_point)
+        #options = th.load('../checkpoints/{}/options.pkl'.format(options.checkpoint))
+        model.load_state_dict(th.load(pretrained_path))
+        print("continue training from checkpoint {}".format(options.start_point))
+
+    if options.checkpoint:
         checkpoint_path = '../checkpoints/{}'.format(options.checkpoint)
         os.makedirs(checkpoint_path)  # exist not ok
         th.save(options, os.path.join(checkpoint_path, 'options.pkl'))
-        model = init_model(options).to(device)
         # os.makedirs('../checkpoints/{}'.format(options.checkpoint))  # exist not ok
         stdout_f = '../checkpoints/{}/stdout.log'.format(options.checkpoint)
         stderr_f = '../checkpoints/{}/stderr.log'.format(options.checkpoint)
         with tee.StdoutTee(stdout_f), tee.StderrTee(stderr_f):
-            print('seed:',seed)
+            #print('seed:',seed)
             train(model)
     else:
         print('No checkpoint is specified. abandoning all model checkpoints and logs')
-        model = init_model(options).to(device)
         train(model)
