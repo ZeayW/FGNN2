@@ -3,10 +3,11 @@ import argparse
 
 def get_options(args=None):
     parser = argparse.ArgumentParser()
+    parser.add_argument('--per2replace', type=int, nargs='+', default=[1,2,3,5], help=" (10x) percent of nodes replaced in augmentation")
     parser.add_argument('--design',type=str)
     parser.add_argument('--rawdata_path', type=str, help='the directory that contains the raw dataset. Type: str')
     parser.add_argument("--checkpoint",type=str,default=None,help= "checkpoint to save the results and logs")
-    parser.add_argument("--start_iter",type=int, default=None, help="used for continuing training from a specific checkpoint")
+    parser.add_argument("--start_point",type=str, default=None, help="used for continuing training from a specific checkpoint")
     parser.add_argument("--ntypes", type=int, help='the number of gate types. Type: int', default=10)
     parser.add_argument("--learning_rate", type=float, help = 'the learning rate for training. Type: float.',default=1e-3)
     parser.add_argument("--batch_size", type=int, help = 'the number of samples in each training batch. Type: int',default=1024)
