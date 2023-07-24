@@ -10,6 +10,11 @@ import networkx as nx
 
 import cProfile
 
+port_map = {
+    "HADD": {"A0":"A1","B0":"A2"},
+    "FADD": {"A":"A1","B":"A2","CI":"A3"}
+}
+
 def parse_arg(arg,port_info,ios,wires):
     r"""
 
@@ -142,7 +147,7 @@ class DcParser:
         return not self.is_output_port(port)
 
     def is_output_port(self, port: str) -> bool:
-        return port in ("Y", "S", "SO", "CO", "C1", "Q", "QN")
+        return port in ("Y", "S", "SO", "CO", "C1", "Q", "QN","O1")
 
     def parse_report(self,fname):
         r"""
@@ -216,6 +221,15 @@ class DcParser:
                     dp_target_blocks[block_name][2][var_name] = 1
                     # get the operants
                     operants = expression.split('+')
+                    for operant in operants:
+                        dp_target_blocks[block_name][1][operant] = 1
+                if 'addsub' in expression:
+                    dp_target_blocks[block_name] = dp_target_blocks.get(block_name, ('add', {}, {}))
+                    # record the output port of the block
+                    dp_target_blocks[block_name][2][var_name] = 1
+                    # get the operants
+                    expression = expression[expression.find('('):expression.rfind(')')]
+                    operants = expression.split(',')
                     for operant in operants:
                         dp_target_blocks[block_name][1][operant] = 1
                 # find a subtract operation
@@ -355,8 +369,8 @@ class DcParser:
                 if re.match("n\d+$", argname) is not None:
 
                     return port_info
-                print(mcomp)
-                print(portname, argname)
+                #print(mcomp)
+                #print(portname, argname)
                 # print(module_ports)
                 # position = False
                 pos = argname.split('_')[-1]
@@ -499,6 +513,8 @@ class DcParser:
                 # find if the module'name contain specific keywords, if true, then it is a target module
                 for key_word in self.adder_keywords:
                     if key_word in mcomp:
+                        # instance.show()
+                        # print('######################', mcell, mcomp)
                         cell_type = 'add'
                         is_target = True
                         break
@@ -507,11 +523,13 @@ class DcParser:
                         cell_type = 'sub'
                         is_target = True
                         break
+
                 # find if the current module in the target_blocks list extracted from the report file,
                 # if true, then it is a target module
                 if dp_target_blocks.get(mname,None) is not None:
                     cell_type = dp_target_blocks[mname][0]
                     is_target = True
+
 
                 # parse the information of a target module
                 if is_target:
@@ -624,7 +642,9 @@ class DcParser:
         #             print(cell.cell_name,cell.instance_name,cell.ports)
 
         target_blocks = target_blocks[self.top_module]
-        
+        # for cell in target_blocks:
+        #     print(cell.cell_name, cell.instance_name, cell.ports)
+
         return target_blocks
 
     def parse_nonhier(self, fname,dp_target_blocks,target_blocks):
@@ -646,10 +666,7 @@ class DcParser:
                 the edges of the transformed DAG
         """
 
-        nodes: List[Tuple[str, Dict[str, str]]] = [
-            ("1'b0", {"type": "1'b0"}),
-            ("1'b1", {"type": "1'b1"}),
-        ]  # a list of (node, {"type": type})
+        nodes: List[Tuple[str, Dict[str, str]]] = [ ]  # a list of (node, {"type": type})
         edges: List[
             Tuple[str, str, Dict[str, bool]]
         ] = []  # a list of (src, dst, {"is_reverted": is_reverted})
@@ -750,83 +767,90 @@ class DcParser:
                 # do some replacement, replace some of the cell to some fix cell type, e.g., AO221 -> AND + OR
                 if mfunc == "HADD":
                     if fo.portname == "SO":
-                        ntype = 'XOR'
+                        ntype = 'XOR2'
                     elif fo.portname == "C1":
-                        ntype = 'AND'
+                        ntype = 'AND2'
                     else:
                         print(fo.portname)
                         assert False
                 elif mfunc == "FADD":
                     if fo.portname == "S":
-                        ntype = 'XOR'
+                        ntype = 'XOR3'
                     elif fo.portname == "CO":
                         ntype = 'MAJ'
                     else:
                         print(fo.portname)
                         assert False
+                elif mfunc in ["1'b0","1'b1"] or 'DFF' in mfunc:
+                    ntype = 'PI'
                 else:
                     ntype = mfunc
 
                 if 'AO' in ntype or 'OA' in ntype:
 
                     num_inputs = ntype[re.search('\d',ntype).start():]
-                    ntype1 = 'AND' if 'AO' in ntype else 'OR'
-                    ntype2 = 'OR' if 'AO' in ntype else 'AND'
+
+                    ntype1 = 'AND2' if 'AO' in ntype else 'OR2'
+                    ntype2 = 'OR{}'.format(len(num_inputs)) if 'AO' in ntype else 'AND{}'.format(len(num_inputs))
                     if 'I' in ntype:
                         output_name = '{}_i'.format(fo.argname)
-                        nodes.append((output_name,{"type":ntype2}))
-                        nodes.append((fo.argname, {"type": 'INV'}))
-                        inputs[fo.argname] = [output_name]
+                        inputs[fo.argname] = inputs.get(fo.argname, {})
+                        inputs[fo.argname]['A'] = output_name
+                        nodes.append((fo.argname, {"type": 'INV',"inputs":inputs[fo.argname]}))
                     else:
                         output_name = fo.argname
-                        nodes.append((output_name,{"type":ntype2}))
-                    inputs[output_name] = inputs.get(output_name,[])
+                    inputs[output_name] = inputs.get(output_name,{})
                     for i,num_input in enumerate(num_inputs):
                         if num_input == '2':
                             h_node_name = '{}_h{}'.format(fo.argname,i)
-                            nodes.append( (h_node_name,{"type":ntype1}) )
-                            inputs[h_node_name] = inputs.get(h_node_name,[])
-                            inputs[h_node_name].append(fanins[2*i].argname)
-                            inputs[h_node_name].append(fanins[2*i+1].argname)
-
-                            inputs[output_name].append(h_node_name)
+                            inputs[h_node_name] = inputs.get(h_node_name,{})
+                            inputs[h_node_name]['A1'] = fanins[2*i].argname
+                            inputs[h_node_name]['A2'] = fanins[2*i+1].argname
+                            nodes.append((h_node_name, {"type": ntype1, "inputs":inputs[h_node_name]}))
+                            inputs[output_name]['A{}'.format(i+1)] = h_node_name
 
                         elif num_input =='1':
-                            inputs[output_name].append(fanins[2*i].argname)
+                            inputs[output_name]['A{}'.format(i+1)] = fanins[2*i].argname
                         else:
                             print(ntype,i,num_input)
                             assert  False
-
+                    nodes.append((output_name, {"type": ntype2, "inputs":inputs[output_name]}))
                 else:
                     pos = re.search("\d", mtype)
                     if pos:
-                        ntype = ntype[: pos.start()]
+                        ntype = ntype[: pos.start()+1]
 
-                    inputs[fo.argname] = inputs.get(fo.argname,[])
+                    inputs[fo.argname] = inputs.get(fo.argname,{})
                     for fi in fanins:
 
-                        if ntype == 'NBUFF':
+                        if 'DELLN' in ntype or 'NBUFF' in ntype:
+                            #print(ntype, fo.argname, fi.argname)
                             buff_replace[fo.argname] = fi.argname
                         else:
-                            inputs[fo.argname].append(fi.argname)
+                            if port_map.get(mfunc,None) is not None:
+                                port_name = port_map[mfunc][fi.portname]
+                            else:
+                                port_name = fi.portname
+                            inputs[fo.argname][port_name] = fi.argname
+
                     if ntype == 'IBUFF':
                         ntype = 'INV'
-
                     if buff_replace.get(fo.argname,None) is None:
-                        nodes.append((fo.argname, {"type": ntype}))
+                        nodes.append((fo.argname, {"type": ntype,"inputs":inputs[fo.argname]}))
             # the edges represents the connection between the fanins and the fanouts
-            for output,input in inputs.items():
-
-                for fi in input:
-                    edges.append(
-                        (
-                            fi,
-                            output,
-                            {"is_reverted": False, "is_sequencial": "DFF" in mtype},
+            if 'DFF' not in mfunc:
+                for output,input in inputs.items():
+                    for fi in input.values():
+                        edges.append(
+                            (
+                                fi,
+                                output,
+                                {"is_reverted": False, "is_sequencial": "DFF" in mtype},
+                            )
                         )
-                    )
 
         # remove the buffers
+
         new_edges = []
         for edge in edges:
             if buff_replace.get(edge[0],None) is not None:
@@ -839,12 +863,13 @@ class DcParser:
             flush=True,
         )
 
+
         # add the edges that connect PIs
         gate_names = set([n[0] for n in nodes])
         pis = []
         for (src, _, _) in edges:
             if src not in gate_names and src not in pis:
-                nodes.append((src, {"type": "PI"}))
+                nodes.append((src, {"type": "PI", "inputs":{}}))
                 pis.append(src)
 
         # label the nodes
@@ -882,7 +907,13 @@ class DcParser:
         print('num sub inputs2:', len(sub_inputs2))
         print('num sub outputs:', len(sub_outputs))
 
-        return nodes, edges
+        g = nx.DiGraph()
+        g.add_nodes_from(nodes)
+        g.add_edges_from(edges)
+        # g_topo = nx.topological_sort(g)
+        # for n in g_topo:
+        #     print(n,g.nodes[n]['type'], g.nodes[n]['is_adder_output'], g.nodes[n]['inputs'])
+        return g, buff_replace
 
     def parse(self,vfile_pair,hier_report):
         R"""
@@ -899,7 +930,7 @@ class DcParser:
         hier_vf, nonhier_vf = vfile_pair[0], vfile_pair[1]
         dp_target_blocks = self.parse_report(hier_report)
         target_cells = self.parse_hier(hier_vf, dp_target_blocks)
-        nodes, edges = self.parse_nonhier(nonhier_vf, dp_target_blocks=dp_target_blocks,target_cells=target_cells)
+        graph = self.parse_nonhier(nonhier_vf, dp_target_blocks=dp_target_blocks,target_blocks=target_cells)
 
-        return nodes,edges
+        return graph
 
