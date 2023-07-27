@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 #from MyGAT import GATConv
 from MySageConv import SAGEConv
-from FunctionConv import FunctionConv
+from FunctionConv3 import FunctionConv
 #from MyGIN import GINConv
 
 from time import time
@@ -266,9 +266,9 @@ class MLP(nn.Module):
         self.layers= nn.Sequential()
         dim1 = in_dim
         for i in range(nlayers-1):
-            self.layers.add_module('dropout_{}'.format(i+1),self.dropout)
-            self.layers.add_module('activation_{}'.format(i+1), self.activation)
+            #self.layers.add_module('dropout_{}'.format(i+1),self.dropout)
             self.layers.add_module('linear_{}'.format(i+1),nn.Linear(dim1, int(dim1/2)))
+            self.layers.add_module('activation_{}'.format(i + 1), self.activation)
             dim1 = int(dim1 / 2)
         self.layers.add_module('linear_{}'.format(nlayers),nn.Linear(dim1, out_dim))
     def forward(self,embedding):

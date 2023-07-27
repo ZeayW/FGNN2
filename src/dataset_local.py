@@ -46,7 +46,7 @@ def parse_single_cell(file_path):
             else:
                 internal_nodes.append((pin2nid[pin], {'type': gate, "is_adder_output": False, 'is_adder_input': False,
                                                       'position': None, 'is_mul_output': False, 'is_mul_input': False,
-                                                      'is_sub_output':     False, 'is_sub_input': False, 'is_internal':True}))
+                                                      'is_sub_output':     False, 'is_sub_input': False, 'is_internal':True,'inv':False}))
             # else:
             #     assert False, "wrong gate type: {}".format(gate)
 
@@ -73,6 +73,7 @@ def graph2aig(g,buff_replace):
     for i,n in enumerate(g_topo):
         n_property = g.nodes[n]
         n_property['is_internal'] = False
+        n_property['inv'] = False
         predecessors = g.nodes[n]['inputs']
         cell_type = g.nodes[n]['type']
         if cell_type == "PI":
@@ -92,7 +93,7 @@ def graph2aig(g,buff_replace):
                 ("{}_{}".format(n, node[0]), node[1])
             )
             #print("\t{}_{}".format(n, node[0]))
-        print(cell_type)
+        #print(cell_type)
         for edge in added_edges:
             src, dst, e_property = edge
             dst = n if dst == "PO" else "{}_{}".format(n,dst)
@@ -106,6 +107,62 @@ def graph2aig(g,buff_replace):
             )
             #g.add_edge((src,dst,{}))
 
+    return new_nodes,new_edges
+
+def putINV2edge(nodes,edges):
+    new_nodes = []
+    new_edges = []
+    g = nx.DiGraph()
+    g.add_nodes_from(nodes)
+    g.add_edges_from(edges)
+    g_topo = list(nx.topological_sort(g))
+    g_topo.reverse()
+
+    node_map = {n:n_p for (n,n_p) in nodes}
+    predecessor = {}
+
+    for src, dst, e_property in edges:
+        predecessor[dst] = predecessor.get(dst,[])
+        predecessor[dst].append(src)
+
+    for i, n in enumerate(g_topo):
+        nproperty = node_map[n]
+
+        if nproperty['type'] == 'PI':
+            new_nodes.append(
+                (n, nproperty)
+            )
+        elif nproperty['type'] == 'NOT':
+            if not nproperty['is_internal']:
+                pre_node = predecessor[n][0]
+                pre_ntype = node_map[pre_node]['type']
+                pre_flag_inv = node_map[pre_node]['inv'] if nproperty['inv'] else not node_map[pre_node]['inv']
+                if node_map[pre_node]['is_adder_output']:
+                    continue
+                node_map[pre_node] = nproperty
+                node_map[pre_node]['type'] = pre_ntype
+                node_map[pre_node]['inv'] = pre_flag_inv
+
+        elif nproperty['type'] == 'AND':
+            new_nodes.append(
+                (n,nproperty)
+            )
+            # if nproperty['is_adder_output']:
+            #     print(n,nproperty['inv'])
+            for pre_node in predecessor[n]:
+                pre_ntype = node_map[pre_node]['type']
+                num_inv = 0
+                while pre_ntype == 'NOT':
+                    num_inv += 1
+                    assert len(predecessor[pre_node])==1
+                    pre_node = predecessor[pre_node][0]
+                    pre_ntype = node_map[pre_node]['type']
+                #print('({}, {}, {} {})'.format(pre_node,n,num_inv,num_inv%2!=0))
+                new_edges.append(
+                    (pre_node,n,{'is_reverted':num_inv%2!=0})
+                )
+        else:
+            assert False
     return new_nodes,new_edges
 
 def aig2dglG(nodes,edges):
@@ -125,6 +182,7 @@ def aig2dglG(nodes,edges):
 
 
     # init the label tensors
+    n_inv = th.zeros((len(node2id), 1), dtype=th.long)
     is_internal = th.zeros((len(node2id), 1), dtype=th.long)
     is_adder = th.zeros((len(node2id), 1), dtype=th.long)
     is_adder_input = th.zeros((len(node2id), 1), dtype=th.long)
@@ -138,6 +196,7 @@ def aig2dglG(nodes,edges):
     # collect the label information
     for n in nodes:
         nid = node2id[n[0]]
+        n_inv[nid][0] = n[1]['inv']
         is_internal[nid][0] = n[1]['is_internal']
         is_adder_input[nid][0] = n[1]["is_adder_input"]
         is_adder_output[nid][0] = n[1]["is_adder_output"]
@@ -160,11 +219,12 @@ def aig2dglG(nodes,edges):
 
     src_nodes = []
     dst_nodes = []
-    is_reverted = []
+    e_reverted = th.zeros((len(edges), 1), dtype=th.long)
 
-    for src, dst, edict in edges:
+    for eid, (src, dst, edict) in enumerate(edges):
         src_nodes.append(node2id[src])
         dst_nodes.append(node2id[dst])
+        e_reverted[eid][0] = edict['is_reverted']
 
     # create the graph
     graph = dgl.graph(
@@ -178,6 +238,7 @@ def aig2dglG(nodes,edges):
     #print('ntype:',ntype.shape)
     #print(position[is_adder_output==1])
     # add label information
+    graph.ndata['inv'] = n_inv
     graph.ndata['internal'] = is_internal
     graph.ndata['adder_i'] = is_adder_input
     graph.ndata['adder_o'] = is_adder_output
@@ -185,8 +246,9 @@ def aig2dglG(nodes,edges):
     graph.ndata['mul_o'] = is_mul_output
     graph.ndata['sub_i'] = is_sub_input
     graph.ndata['sub_o'] = is_sub_output
-
     graph.ndata['position'] = position
+
+    graph.edata['r'] = e_reverted
 
     print('# unmasked nodes: ',len(th.tensor(range(graph.number_of_nodes()))[graph.ndata['internal'].squeeze()==0]))
     return graph
@@ -219,6 +281,7 @@ if __name__ == "__main__":
         for v in os.listdir(netlist_path):
             if not v.endswith('v') or v.split('.')[0].endswith('d10') or 'auto' in v:
                 continue
+            if not 'sklan' in v : continue
             if v.startswith('hier'):
                 vname = v[5:-2]
                 vfile_pairs[vname] = vfile_pairs.get(vname, [])
@@ -239,6 +302,7 @@ if __name__ == "__main__":
             # parse single file
             g, buff_replace = parser.parse((hier_vf, vf), hier_report)
             aig_nodes, aig_edges = graph2aig(g,buff_replace)
+            aig_nodes, aig_edges = putINV2edge(aig_nodes,aig_edges)
             dgl_g = aig2dglG(aig_nodes, aig_edges)
             print(dgl_g)
             graphs.append(dgl_g)

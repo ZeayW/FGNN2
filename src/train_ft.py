@@ -70,6 +70,10 @@ def cal_ratios(count1,count2):
             ratios.append(round(ratio,4))
     return ratios
 
+def unlabel_low(g,unlabel_threshold):
+    mask_low = g.ndata['position'] <= unlabel_threshold
+    g.ndata['adder_o'][mask_low] = 0
+
 def oversample(g,options,in_dim):
     r"""
 
@@ -89,21 +93,21 @@ def oversample(g,options,in_dim):
 
 
 
-    if options.label == 'in':
-        labels = g.ndata['label_i']
-    elif options.label == 'out':
-        labels = g.ndata['label_o']
+    labels = g.ndata['adder_o']
 
-    else:
-        print("wrong label type")
-        return
     lowbit_mask = g.ndata['position']<=3
     # unlabel the nodes in muldiv
     no_muldiv_mask = labels.squeeze(-1)!=-1
-    print('no_mul',len(labels[no_muldiv_mask]))
+    if options.mask:
+        no_internal_mask = g.ndata['internal'].squeeze() == 0
+        mask = th.logical_and(no_muldiv_mask,no_internal_mask)
+    else:
+        mask = no_muldiv_mask
+    print('#nodes after masking',len(labels[mask]))
     nodes = th.tensor(range(g.num_nodes()))
-    nodes = nodes[no_muldiv_mask]
-    labels = labels[no_muldiv_mask]
+    nodes = nodes[mask]
+
+    labels = labels[mask]
     print(len(nodes))
 
     mask_pos = (labels ==1).squeeze(1)
@@ -115,13 +119,14 @@ def oversample(g,options,in_dim):
     shuffle(neg_nodes)
     pos_size = len(pos_nodes)
     neg_size = len(neg_nodes)
-
+    print(len(g.ndata['position'][g.ndata['adder_o'].squeeze(-1) == 1].numpy().tolist()))
+    print(len(pos_nodes))
     ratio = float(neg_size) / float(pos_size)
     print("ratio=", ratio)
 
 
-    pos_count = th.zeros(size=(1, in_dim)).squeeze(0).numpy().tolist()
-    neg_count = th.zeros(size=(1, in_dim)).squeeze(0).numpy().tolist()
+    pos_count = th.zeros(size=(1, in_dim+1)).squeeze(0).numpy().tolist()
+    neg_count = th.zeros(size=(1, in_dim+1)).squeeze(0).numpy().tolist()
     pos_types = g.ndata['ntype'][pos_nodes]
     neg_types = g.ndata['ntype'][neg_nodes]
     pos_types = th.argmax(pos_types, dim=1)
@@ -183,9 +188,9 @@ def preprocess(data_path,device,options):
     label2id = {}
     if os.path.exists(data_path) is False:
         os.makedirs(data_path)
-    train_data_file = os.path.join(data_path, 'boom.pkl')
-    val_data_file = os.path.join(data_path, 'rocket.pkl')
-
+    train_data_file = os.path.join(data_path, 'BOOM.pkl')
+    val_data_file = os.path.join(data_path, 'RocketCore.pkl')
+    print(val_data_file)
     # generate and save the test dataset if missing
     if os.path.exists(val_data_file) is False:
         print('Validation dataset does not exist. Generating validation dataset... ')
@@ -349,16 +354,17 @@ def validate(loaders,label_name,device,model,Loss,beta,options):
                     in_input_features = in_blocks[0].srcdata["ntype"]
                     out_input_features = out_blocks[0].srcdata["ntype"]
                 else:
-                    in_input_features = in_blocks[0].srcdata["f_input"]
-                    out_input_features = out_blocks[0].srcdata["f_input"]
+                    in_input_features = in_blocks[0].srcdata["h"]
+                    out_input_features = out_blocks[0].srcdata["h"]
                 # the central nodes are the output of the final block
                 output_labels = in_blocks[-1].dstdata[label_name].squeeze(1)
                 total_num += len(output_labels)
                 # predict the labels of central nodes
-                if options.abgnn:
-                    label_hat = model(in_blocks, in_input_features, out_blocks, out_input_features)
-                else:
-                    label_hat = model(in_blocks, in_input_features)
+                label_hat = model(in_blocks, in_input_features, out_blocks, out_input_features)
+                # if options.abgnn:
+                #     label_hat = model(in_blocks, in_input_features, out_blocks, out_input_features)
+                # else:
+                #     label_hat = model(in_blocks, in_input_features)
                 pos_prob = nn.functional.softmax(label_hat, 1)[:, 1]
                 # adjust the predicted labels based on a given thredshold beta
                 pos_prob[pos_prob >= beta] = 1
@@ -408,8 +414,8 @@ def train(options):
 
     data_path = options.datapath
     print(data_path)
-    train_data_file = os.path.join(data_path,'boom.pkl')
-    val_data_file = os.path.join(data_path,'rocket.pkl')
+    train_data_file = os.path.join(data_path,'BOOM.pkl')
+    val_data_file = os.path.join(data_path,'RocketCore.pkl')
 
     # preprocess: generate dataset / initialize the model
     if options.preprocess :
@@ -426,10 +432,18 @@ def train(options):
     in_nlayers = options.in_nlayers if isinstance(options.in_nlayers,int) else options.in_nlayers[0]
     out_nlayers = options.out_nlayers if isinstance(options.out_nlayers,int) else options.out_nlayers[0]
 
-    label_name = 'label_o'
+    label_name = 'adder_o'
     print("----------------Loading data----------------")
     with open(train_data_file,'rb') as f:
-        train_g = pickle.load(f)
+        train_g,_ = pickle.load(f)
+        if options.function:
+            train_g.ndata['h'] = th.ones((train_g.number_of_nodes(),options.hidden_dim),dtype=th.float)
+        #train_g.ndata['label_o'] = train_g.ndata['adder_o']
+        train_g.ndata['ntype2'] = th.argmax(train_g.ndata['ntype'], dim=1).squeeze(-1)
+        train_g.ndata['temp'] = th.ones(size=(train_g.number_of_nodes(), options.hidden_dim),
+                                      dtype=th.float)
+        train_g.ndata['adder_o'][train_g.ndata['mul_o']==1] = -1
+        #train_g.ndata['adder_o'][train_g.ndata['sub_o'] == 1] = -1
         train_graphs = dgl.unbatch(train_g)
         if options.train_percent == 1:
             train_graphs = [train_graphs[3]]
@@ -437,10 +451,28 @@ def train(options):
             train_graphs = train_graphs[:int(options.train_percent)]
         train_g = dgl.batch(train_graphs)
     with open(val_data_file,'rb') as f:
-        val_g = pickle.load(f)
+        val_g,_ = pickle.load(f)
+        #val_g.ndata['label_o'] = val_g.ndata['adder_o']
+        val_g.ndata['ntype2'] = th.argmax(val_g.ndata['ntype'], dim=1).squeeze(-1)
+        print(len(val_g.ndata['adder_o'][val_g.ndata['adder_o'] == 1]))
+        print(len(val_g.ndata['adder_o'][val_g.ndata['mul_o'] == 1]))
+        val_g.ndata['adder_o'][val_g.ndata['mul_o'] == 1] = -1
+        #val_g.ndata['adder_o'][val_g.ndata['sub_o'] == 1] = -1
+        print(len(val_g.ndata['adder_o'][val_g.ndata['adder_o'] == 1]))
+        #exit()
+        if options.function:
+            val_g.ndata['h'] = th.ones((val_g.number_of_nodes(),options.hidden_dim),dtype=th.float)
+            val_g.ndata['temp'] = th.ones(size=(val_g.number_of_nodes(), options.hidden_dim),
+                                          dtype=th.float)
 
+    #print(train_g.ndata['position'][train_g.ndata['adder_o'].squeeze(-1) == 1].numpy().tolist())
+    train_g.ndata['position'][train_g.ndata['adder_o'].squeeze(-1) == -1] = 100
+    val_g.ndata['position'][val_g.ndata['adder_o'].squeeze(-1) == -1] = 100
+    unlabel_low(train_g, options.unlabel)
+    unlabel_low(val_g, options.unlabel)
+    #print(train_g.ndata['position'][train_g.ndata['adder_o'].squeeze(-1) == 1].numpy().tolist())
+    #print(len())
     train_nodes, pos_count, neg_count = oversample(train_g, options, options.in_dim)
-
 
     if in_nlayers == -1:
         in_nlayers = 0
@@ -449,23 +481,36 @@ def train(options):
     in_sampler = Sampler([None] * (in_nlayers + 1), include_dst_in_src=options.include)
     out_sampler = Sampler([None] * (out_nlayers + 1), include_dst_in_src=options.include)
 
-    if os.path.exists(os.path.join(options.datapath, 'val_nids.pkl')):
-        with open(os.path.join(options.datapath, 'val_nids.pkl'), 'rb') as f:
+    if options.mask:
+        val_split_file = "val_nids_masked_nodiv.pkl"
+        test_split_file = "test_nids_masked_nodiv.pkl"
+    else:
+        val_split_file = "val_nids.pkl"
+        test_split_file = "test_nids.pkl"
+    if os.path.exists(os.path.join(options.datapath, val_split_file)):
+        with open(os.path.join(options.datapath, val_split_file), 'rb') as f:
             val_nids = pickle.load(f)
-        with open(os.path.join(options.datapath, 'test_nids.pkl'), 'rb') as f:
+        with open(os.path.join(options.datapath, test_split_file), 'rb') as f:
             test_nids = pickle.load(f)
     else:
-        val_nids = th.tensor(range(val_g.number_of_nodes()))
-        val_nids = val_nids[val_g.ndata['label_o'].squeeze(-1) != -1]
-        val_nids1 = val_nids.numpy().tolist()
-        shuffle(val_nids1)
-        val_nids = val_nids1[:int(len(val_nids1) / 10)]
-        test_nids = val_nids1[int(len(val_nids1) / 10):]
+        nids = th.tensor(range(val_g.number_of_nodes()))
+        mask1 = val_g.ndata['adder_o'].squeeze(-1) != -1
+        if options.mask:
+            mask2 = val_g.ndata['internal'].squeeze() == 0
+            mask = th.logical_and(mask1,mask2)
+        else:
+            mask = mask1
+        nids = nids[mask]
+        nids = nids.numpy().tolist()
+        shuffle(nids)
+        val_nids = nids[:int(len(nids) / 10)]
+        test_nids = nids[int(len(nids) / 10):]
 
-        with open(os.path.join(options.datapath, 'val_nids.pkl'), 'wb') as f:
+        with open(os.path.join(options.datapath, val_split_file), 'wb') as f:
             pickle.dump(val_nids, f)
-        with open(os.path.join(options.datapath, 'test_nids.pkl'), 'wb') as f:
+        with open(os.path.join(options.datapath, test_split_file), 'wb') as f:
             pickle.dump(test_nids, f)
+
 
     # create dataloader for training/validate dataset
     if options.sage:
@@ -550,16 +595,20 @@ def train(options):
                 in_input_features = in_blocks[0].srcdata["ntype"]
                 out_input_features = out_blocks[0].srcdata["ntype"]
             else:
-                in_input_features = in_blocks[0].srcdata["f_input"]
-                out_input_features = out_blocks[0].srcdata["f_input"]
+                in_input_features = in_blocks[0].srcdata["h"]
+                out_input_features = out_blocks[0].srcdata["h"]
+            # if epoch>0:
+            #     print(in_input_features)
             # the central nodes are the output of the final block
             output_labels = in_blocks[-1].dstdata[label_name].squeeze(1)
             total_num += len(output_labels)
             # predict the labels of central nodes
-            if options.abgnn:
-                label_hat = model(in_blocks,in_input_features,out_blocks,out_input_features)
-            else:
-                label_hat = model(in_blocks, in_input_features)
+
+            label_hat = model(in_blocks, in_input_features, out_blocks, out_input_features)
+            # if options.abgnn:
+            #     label_hat = model(in_blocks,in_input_features,out_blocks,out_input_features)
+            # else:
+            #     label_hat = model(in_blocks, in_input_features)
             if get_options().nlabels != 1:
                 pos_prob = nn.functional.softmax(label_hat, 1)[:, 1]
             else:
