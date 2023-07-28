@@ -238,7 +238,7 @@ def aig2dglG(nodes,edges):
     #print('ntype:',ntype.shape)
     #print(position[is_adder_output==1])
     # add label information
-    graph.ndata['inv'] = n_inv
+    graph.ndata['inv'] = n_inv.squeeze()
     graph.ndata['internal'] = is_internal
     graph.ndata['adder_i'] = is_adder_input
     graph.ndata['adder_o'] = is_adder_output
@@ -248,7 +248,7 @@ def aig2dglG(nodes,edges):
     graph.ndata['sub_o'] = is_sub_output
     graph.ndata['position'] = position
 
-    graph.edata['r'] = e_reverted
+    graph.edata['r'] = e_reverted.squeeze()
 
     print('# unmasked nodes: ',len(th.tensor(range(graph.number_of_nodes()))[graph.ndata['internal'].squeeze()==0]))
     return graph

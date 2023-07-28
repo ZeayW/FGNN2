@@ -24,27 +24,22 @@ class MLP(torch.nn.Module):
 class FunctionConv(nn.Module):
 
     def __init__(self,
-                 ntypes,
-                 in_feats,
-                 out_feats,
+                 hidden_dim,
+                 out_dim,
+                 flag_proj=False,
                  activation=None):
         super(FunctionConv, self).__init__()
 
         # initialize the gate functions, each for one gate type, e.g., AND, OR, XOR...
-        self.gate_functions = nn.ModuleList()
-        for i in range(ntypes):
-            self.gate_functions.append(
-                MLP(in_feats,int(in_feats/2), int(in_feats/2),out_feats)
-            )
-            #self.gate_functions.append(nn.Linear(in_feats,out_feats))
 
-        self.funv_inv = MLP(in_feats,int(in_feats/2), int(in_feats/2),out_feats)
-        self.func_and = MLP(in_feats,int(in_feats/2), int(in_feats/2),out_feats)
+        self.func_inv = MLP(hidden_dim,int(hidden_dim/2),int(hidden_dim/2),hidden_dim)
+        self.func_and = MLP(hidden_dim,int(hidden_dim/2),int(hidden_dim/2),hidden_dim)
         # set some attributes
-        self.ntypes =ntypes
-        self._out_feats = out_feats
+        self.hidden_dim = hidden_dim
+        self.out_dim = out_dim
         self.activation = activation
-
+        self.flag_proj = flag_proj
+        if flag_proj: self.proj = MLP(hidden_dim,int(hidden_dim/2),int(hidden_dim/2),out_dim)
         # initialize the parameters
         #self.reset_parameters()
 
@@ -70,8 +65,15 @@ class FunctionConv(nn.Module):
 
         res =  self.func_and(nodes.data['neigh'])
         # mask = nodes.data['inv'].squeeze()==1
-        # res[mask] = self.funv_inv((res[mask]))
+        # res[mask] = self.func_inv((res[mask]))
         return {'rst':res}
+
+    def edge_msg(self,edges):
+        msg = edges.src['h']
+        mask = edges.data['r'] == 1
+        msg[mask] = self.func_inv(msg[mask])
+
+        return {'m': msg}
 
     def forward(self,act_flag, graph, feat):
         r"""
@@ -119,17 +121,17 @@ class FunctionConv(nn.Module):
             """
             # we used mean as the reduce function , and a self-defined function as the apply function
             #print(feat_src.shape)
-            graph.apply_edges(lambda edges: {'eh' : self.funv_inv(edges.src['h'])},
-                              graph.edata[dgl.EID][graph.edata['r'].squeeze()==1])
-            # print(len(graph.edata[dgl.EID]),graph.edata[dgl.EID])
-            # print(graph.srcdata['h'])
-            # print(graph.edata['eh'])
-            # print(graph.edata['r'])
-            graph.apply_edges(lambda edges: {'eh': edges.src['h']},
-                              graph.edata[dgl.EID][graph.edata['r'].squeeze() == 0])
+            # graph.apply_edges(lambda edges: {'eh' : self.func_inv(edges.src['h'])},
+            #                   graph.edata[dgl.EID][graph.edata['r'].squeeze()==1])
+            # # print(len(graph.edata[dgl.EID]),graph.edata[dgl.EID])
+            # # print(graph.srcdata['h'])
+            # # print(graph.edata['eh'])
+            # # print(graph.edata['r'])
+            # graph.apply_edges(lambda edges: {'eh': edges.src['h']},
+            #                   graph.edata[dgl.EID][graph.edata['r'].squeeze() == 0])
             # print(graph.edata['eh'])
             # print('node_inv',graph.dstdata['inv'])
-            graph.update_all(fn.copy_e('eh', 'm'), fn.mean('m', 'neigh'),self.apply_nodes_func)
+            graph.update_all(self.edge_msg, fn.mean('m', 'neigh'),self.apply_nodes_func)
             rst = graph.dstdata['rst']
             #print(graph.ntypes)
             # graph.apply_nodes(lambda nodes: {'rst': self.funv_inv(nodes.data['rst'])},

@@ -47,7 +47,6 @@ class MLP(th.nn.Module):
 class FuncConv(nn.Module):
 
     def __init__(self,
-                 ntypes,
                  hidden_dim,
                  out_dim,
                  flag_proj = False,
@@ -65,11 +64,9 @@ class FuncConv(nn.Module):
         #     )
             # self.gate_functions.append(nn.Linear(hidden_dim,hidden_dim))
 
-        self.funv_inv = MLP(hidden_dim,int(hidden_dim/2),int(hidden_dim/2),hidden_dim)
+        self.func_inv = MLP(hidden_dim,int(hidden_dim/2),int(hidden_dim/2),hidden_dim)
         self.func_and = MLP(hidden_dim,int(hidden_dim/2),int(hidden_dim/2),hidden_dim)
 
-        # set some attributes
-        self.ntypes =ntypes
         #self._out_feats = out_feats
         self.activation = activation
         if flag_proj: self.proj = MLP(hidden_dim,int(hidden_dim/2),int(hidden_dim/2),out_dim)
@@ -98,7 +95,7 @@ class FuncConv(nn.Module):
     def apply_nodes_func(self,nodes):
         res = self.func_and(nodes.data['neigh'])
         # mask = nodes.data['inv'].squeeze()==1
-        # res[mask] = self.funv_inv((res[mask]))
+        # res[mask] = self.func_inv((res[mask]))
         return {'h':res}
 
     def edge_msg(self,edges):

@@ -32,7 +32,6 @@ class FuncGNN(nn.Module):
         self.fc_out = nn.Linear(hidden_dim,out_dim)
 
         self.conv = FunctionConv(
-                    ntypes,
                     hidden_dim,
                     hidden_dim,
                     activation=activation,

@@ -10,6 +10,7 @@ from torch.nn.parameter import Parameter
 import pickle
 import tee
 import sys
+import truthvalue_parser
 
 sys.path.append("..")
 
@@ -34,7 +35,7 @@ def parse_single_file(file_path,required_input):
         'AND': 0,
         'PI': 1,
     }
-    nodes:{}
+    nodes = {}
     # edges: List[Tuple[str, str, Dict[str, bool]]] = []  # a list of (src, dst, {"is_reverted": is_reverted})
     num_input = 0
     src_nodes = []
@@ -54,7 +55,6 @@ def parse_single_file(file_path,required_input):
             PO_pin = sentence[sentence.find('(') + 1:sentence.rfind(')')]
         else:
             pin, expression = sentence.replace(' ', '').split("=")
-            pin2nid[pin] = len(pin2nid)
             gate, parameters = expression.split("(")
             parameters = parameters.split(')')[0]
             if gate == 'NOT':
@@ -84,10 +84,10 @@ def parse_single_file(file_path,required_input):
     n_inv = th.zeros((len(nodes), 1), dtype=th.float)
     nodes_type = th.zeros((len(nodes), len(ntype2id)))
     for pin,node_info in nodes.items():
-        nid = pin2nid.get(pin,len(pin2nid))
+        pin2nid[pin] = len(pin2nid)
         ntypeID = ntype2id[node_info['ntype']]
-        nodes_type[nid][ntypeID] = 1
-        n_inv[nid][0] = node_info['inv']
+        nodes_type[pin2nid[pin]][ntypeID] = 1
+        n_inv[pin2nid[pin]][0] = node_info['inv']
 
     e_reverted = th.zeros((len(edges), 1), dtype=th.long)
     for eid, (src, dst, edict) in enumerate(edges):
@@ -105,9 +105,9 @@ def parse_single_file(file_path,required_input):
     #graph.ndata['ntype2'] = th.argmax(nodes_type, dim=1).squeeze(-1)
     graph.ndata['output'] = th.zeros(graph.number_of_nodes(), dtype=th.float)
     graph.ndata['output'][topo[-1]] = 1
-    graph.ndata['inv'] = n_inv
+    graph.ndata['inv'] = n_inv.squeeze()
 
-    graph.edata['r'] = e_reverted
+    graph.edata['r'] = e_reverted.squeeze()
 
     return graph, topo
 
@@ -157,9 +157,11 @@ if __name__ == "__main__":
             #filelist = os.listdir(rawdata_path)
 
             #print('#cases:', len(filelist)
-            for aig_file in os.listdir(data_path):
+            for findex, aig_file in enumerate(os.listdir(data_path)):
                 if not aig_file.endswith('bench'):
                     continue
+                if findex%5000==0:
+                    print('processed: {}'.format(findex))
                 aig_name = aig_file.split('.')[0]
                 aig_file_path = os.path.join(data_path,aig_file)
                 # if not vf.endswith('.v') or not os.path.exists(os.path.join(rawdata_path, vf)):
@@ -167,8 +169,9 @@ if __name__ == "__main__":
                 required_input, value = aig_name.split('_')
                 value = value[1:]
                 required_input = int(required_input[1:])
-                code = bin(int(value, 10))[2:].zfill(pow(2, required_input))
-
+                code = truthvalue2code(int(value),required_input)
+                #code = bin(int(value, 10))[2:].zfill(pow(2, required_input))
+                print(value,code)
                 original_graph, original_topo = parse_single_file(aig_file_path,required_input)
                 if original_graph is None:
                     continue
@@ -184,7 +187,8 @@ if __name__ == "__main__":
                         if not os.path.exists(augAig_file_path):
                             break
                         aug_graph, aug_topo = parse_single_file(augAig_file_path,required_input)
-                        aug_graph.ndata['v'] = int(value) * th.ones(aug_graph.number_of_nodes(), dtype=th.float)
+
+                        #aug_graph.ndata['v'] = int(value) * th.ones(aug_graph.number_of_nodes(), dtype=th.float)
                         positive_pair[i-1] = [code,aug_graph, aug_topo[-1].item(),
                                             aug_graph.number_of_nodes()]  # gr` aph, PO, size
                     if None in positive_pair:
