@@ -101,19 +101,18 @@ def NCEloss_w(embeddings, codes,i, j, tao):
     pos_similarity = th.cosine_similarity(embeddings[i], embeddings[j], dim=-1)
     neg_similarity_1 = th.cosine_similarity(embeddings[i], embeddings, dim=-1)
     neg_similarity_2 = th.cosine_similarity(embeddings[j], embeddings, dim=-1)
-    code_similarity_1 = th.cosine_similarity(codes[i], codes, dim=-1)
-    code_similarity_2 = th.cosine_similarity(codes[j], codes, dim=-1)
+    code_similarity = th.cosine_similarity(codes[i], codes, dim=-1)
     #print(pos_similarity,neg_similarity_1,neg_similarity_2)
 
     loss_12 = -1 * th.log(
         th.exp(pos_similarity / tao)
                     /
-        (th.sum(code_similarity_1 * th.exp(neg_similarity_1 / tao)) - math.exp(1 / tao))
+        th.sum(code_similarity * th.exp(neg_similarity_1 / tao))
     )
     loss_21 = -1 * th.log(
         th.exp(pos_similarity / tao)
         /
-        (th.sum(code_similarity_2 *th.exp(neg_similarity_2 / tao)) - math.exp(1 / tao))
+        th.sum(code_similarity *th.exp(neg_similarity_2 / tao))
     )
     return loss_12 + loss_21
 
@@ -200,6 +199,7 @@ def train(model):
                     #     print(code[:10])
                     #     print(embeddings[j][:10])
                     #print(embeddings[j])
+                codes = th.cat((codes,codes)).to(device)
                 num_pair = len(embeddings[0])
                 embeddings = th.cat((embeddings[0],embeddings[1]))
                 # calculate the NCE loss

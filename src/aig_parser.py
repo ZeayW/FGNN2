@@ -169,7 +169,7 @@ if __name__ == "__main__":
                 required_input, value = aig_name.split('_')
                 value = value[1:]
                 required_input = int(required_input[1:])
-                code = truthvalue2code(int(value),required_input)
+                code = th.tensor(truthvalue2code(int(value),required_input),dtype=th.float)
                 #code = bin(int(value, 10))[2:].zfill(pow(2, required_input))
                 #print(value,code)
                 original_graph, original_topo = parse_single_file(aig_file_path,required_input)
