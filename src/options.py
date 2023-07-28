@@ -3,6 +3,7 @@ import argparse
 
 def get_options(args=None):
     parser = argparse.ArgumentParser()
+    parser.add_argument('weighted',action='store_true',help='decide whether use a weight nce loss or not')
     parser.add_argument('--mask',action='store_true')
     parser.add_argument('--per2replace', type=int, nargs='+', default=[1,2,3,5], help=" (10x) percent of nodes replaced in augmentation")
     parser.add_argument('--design',type=str)

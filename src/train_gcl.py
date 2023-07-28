@@ -43,7 +43,7 @@ def load_data(options):
         s = start_aug if cur_input==start_input else 1
         e = end_aug+1 if cur_input==end_input else 4
         traindata_series.extend(
-            [(cur_input, i ) for i in range(s,e)]
+            [(cur_input, i ) for i in options.per2replace[s-1:e]]
         )
         cur_input += 1
 
@@ -84,7 +84,6 @@ def load_data(options):
 
 def init_model(options):
     model = FuncConv(
-            ntypes=options.ntypes,
             hidden_dim=options.hidden_dim,
             out_dim = options.out_dim
         )
@@ -98,8 +97,28 @@ def unlabel_low(g, unlabel_threshold):
     g.ndata['label_o'][mask_low] = 0
 
 
+def NCEloss_w(embeddings, codes,i, j, tao):
+    pos_similarity = th.cosine_similarity(embeddings[i], embeddings[j], dim=-1)
+    neg_similarity_1 = th.cosine_similarity(embeddings[i], embeddings, dim=-1)
+    neg_similarity_2 = th.cosine_similarity(embeddings[j], embeddings, dim=-1)
+    code_similarity_1 = th.cosine_similarity(codes[i], codes, dim=-1)
+    code_similarity_2 = th.cosine_similarity(codes[j], codes, dim=-1)
+    #print(pos_similarity,neg_similarity_1,neg_similarity_2)
+
+    loss_12 = -1 * th.log(
+        th.exp(pos_similarity / tao)
+                    /
+        (th.sum(code_similarity_1 * th.exp(neg_similarity_1 / tao)) - math.exp(1 / tao))
+    )
+    loss_21 = -1 * th.log(
+        th.exp(pos_similarity / tao)
+        /
+        (th.sum(code_similarity_2 *th.exp(neg_similarity_2 / tao)) - math.exp(1 / tao))
+    )
+    return loss_12 + loss_21
+
 # calculate the NCE loss
-def NCEloss(embeddings, i, j, tao):
+def NCEloss(embeddings,codes, i, j, tao):
     pos_similarity = th.cosine_similarity(embeddings[i], embeddings[j], dim=-1)
     neg_similarity_1 = th.cosine_similarity(embeddings[i], embeddings, dim=-1)
     neg_similarity_2 = th.cosine_similarity(embeddings[j], embeddings, dim=-1)
@@ -145,6 +164,7 @@ def train(model):
     )
     model.train()
 
+    Loss = NCEloss_w if options.weighted else NCEloss
     print("----------------Start training----------------")
     cur_time = datetime.datetime.now().strftime("%Y-%m-%d-%H:%M:%S")
     for num_input, aug_percent, data_loader in data_loaders:
@@ -158,7 +178,9 @@ def train(model):
             for i, samples_pair in enumerate(data_loader):
                 loss = 0
                 embeddings = [None,None]
-                for j, (code,graph, PO_nids, sizes) in enumerate(samples_pair):
+                codes = None
+                for j, (cd,graph, PO_nids, sizes) in enumerate(samples_pair):
+                    codes = cd
                     graph.ndata['temp'] = th.ones(size=(graph.number_of_nodes(), options.hidden_dim),
                                                    dtype=th.float)
                     graph.ndata['h'] = th.ones((graph.number_of_nodes(), model.hidden_dim), dtype=th.float)
@@ -182,7 +204,7 @@ def train(model):
                 embeddings = th.cat((embeddings[0],embeddings[1]))
                 # calculate the NCE loss
                 for j in range(num_pair):
-                    loss += NCEloss(embeddings,j,j+num_pair,options.tao)
+                    loss += Loss(embeddings,codes,j,j+num_pair,options.tao)
                 loss = loss / (2*num_pair)
                 total_num += 1
                 total_loss += loss

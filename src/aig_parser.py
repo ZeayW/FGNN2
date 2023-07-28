@@ -10,7 +10,7 @@ from torch.nn.parameter import Parameter
 import pickle
 import tee
 import sys
-import truthvalue_parser
+from truthvalue_parser import *
 
 sys.path.append("..")
 
@@ -93,7 +93,7 @@ def parse_single_file(file_path,required_input):
     for eid, (src, dst, edict) in enumerate(edges):
         src_nodes.append(pin2nid[src])
         dst_nodes.append(pin2nid[dst])
-        e_reverted[eid][0] = edict['is_reverted']
+        e_reverted[eid][0] = edict['r']
 
 
     graph = dgl.graph(
@@ -171,7 +171,7 @@ if __name__ == "__main__":
                 required_input = int(required_input[1:])
                 code = truthvalue2code(int(value),required_input)
                 #code = bin(int(value, 10))[2:].zfill(pow(2, required_input))
-                print(value,code)
+                #print(value,code)
                 original_graph, original_topo = parse_single_file(aig_file_path,required_input)
                 if original_graph is None:
                     continue
