@@ -58,12 +58,15 @@ class FuncConv(nn.Module):
         self.hidden_dim = hidden_dim
         self.out_dim =out_dim
         self.flag_proj = flag_proj
-        self.gate_functions = nn.ModuleList()
-        for i in range(ntypes):
-            self.gate_functions.append(
-                MLP(hidden_dim,int(hidden_dim/2),int(hidden_dim/2),hidden_dim)
-            )
+        # self.gate_functions = nn.ModuleList()
+        # for i in range(ntypes):
+        #     self.gate_functions.append(
+        #         MLP(hidden_dim,int(hidden_dim/2),int(hidden_dim/2),hidden_dim)
+        #     )
             # self.gate_functions.append(nn.Linear(hidden_dim,hidden_dim))
+
+        self.funv_inv = MLP(hidden_dim,int(hidden_dim/2),int(hidden_dim/2),hidden_dim)
+        self.func_and = MLP(hidden_dim,int(hidden_dim/2),int(hidden_dim/2),hidden_dim)
 
         # set some attributes
         self.ntypes =ntypes
@@ -91,37 +94,19 @@ class FuncConv(nn.Module):
             nn.init.xavier_uniform_(self.gate_functions[i].weight, gain=gain)
         if self.flag_proj:
             nn.init.xavier_uniform_(self.proj.weight, gain=gain)
+
     def apply_nodes_func(self,nodes):
-        r"""
-
-               Description
-               -----------
-               An apply function to further update the node features after the message reduction.
-
-               Parameters
-               ----------
-               nodes: the applied nodes
-
-               Returns
-               -------
-               {'msg_name':msg}
-               msg: torch.Tensor
-                   The aggregated messages of shape :math:`(N, D_{out})` where : N is number of nodes, math:`D_{out}`
-                   is size of messages.
-               """
-
-        gate_inputs = nodes.data['neigh']   # the messages to aggregate
-        gate_types = nodes.data['ntype2']   # the node-type of the target nodes
-        res = nodes.data['temp']            # a tensor used to save the result messages
-
-        # for each gate type, use an independent aggregator (function) to aggregate the messages
-        for i in range(self.ntypes):
-            mask = gate_types==i    # nodes of type
-            #print(i,mask)
-            #print(self.gate_functions[i].weight.shape, gate_inputs[mask].shape,self.gate_functions[i](gate_inputs[mask]))
-            if len(gate_inputs[mask])!=0: res[mask] = self.gate_functions[i](gate_inputs[mask])
-
+        res = self.func_and(nodes.data['neigh'])
+        # mask = nodes.data['inv'].squeeze()==1
+        # res[mask] = self.funv_inv((res[mask]))
         return {'h':res}
+
+    def edge_msg(self,edges):
+        msg = edges.src['h']
+        mask = edges.data['r'].squeeze()==1
+        msg[mask] = self.func_inv(msg[mask])
+
+        return {'m':msg}
 
     def forward(self, graph, topo,PO_mask):
         r"""
@@ -152,7 +137,7 @@ class FuncConv(nn.Module):
         #print(graph.ndata['h'])
         with graph.local_scope():
             for i, nodes in enumerate(topo[1:]):
-                graph.pull(nodes, fn.copy_src('h', 'm'), fn.mean('m', 'neigh'), self.apply_nodes_func)
+                graph.pull(nodes, self.edge_msg, fn.mean('m', 'neigh'), self.apply_nodes_func)
 
             rst = graph.ndata['h']
             if PO_mask is not None:

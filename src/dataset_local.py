@@ -182,7 +182,7 @@ def aig2dglG(nodes,edges):
 
 
     # init the label tensors
-    n_inv = th.zeros((len(node2id), 1), dtype=th.long)
+    n_inv = th.zeros((len(node2id), 1), dtype=th.float)
     is_internal = th.zeros((len(node2id), 1), dtype=th.long)
     is_adder = th.zeros((len(node2id), 1), dtype=th.long)
     is_adder_input = th.zeros((len(node2id), 1), dtype=th.long)

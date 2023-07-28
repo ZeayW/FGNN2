@@ -31,15 +31,16 @@ def parse_single_file(file_path,required_input):
     with open(file_path, 'r') as f:
         context = f.readlines()
     ntype2id = {
-        'NOT': 0,
-        'AND': 1,
-        'PI': 2,
+        'AND': 0,
+        'PI': 1,
     }
-    nodes: List[Tuple[str, Dict[str, str]]] = []  # a list of (node, {"type": type})
+    nodes:{}
     # edges: List[Tuple[str, str, Dict[str, bool]]] = []  # a list of (src, dst, {"is_reverted": is_reverted})
     num_input = 0
     src_nodes = []
     dst_nodes = []
+    edges = []
+    inv_map = {}
     pin2nid = {}
     PO_pin = None
     for sentence in context[1:]:
@@ -48,8 +49,7 @@ def parse_single_file(file_path,required_input):
         if sentence.startswith('INPUT'):
             num_input += 1
             pin = sentence[sentence.find('(') + 1:sentence.rfind(')')]
-            pin2nid[pin] = len(pin2nid)
-            nodes.append((pin, {'ntype': 'PI', "is_PO": False}))
+            nodes[pin] =  {'ntype': 'PI', 'inv':False}
         elif sentence.startswith('OUTPUT'):
             PO_pin = sentence[sentence.find('(') + 1:sentence.rfind(')')]
         else:
@@ -57,22 +57,44 @@ def parse_single_file(file_path,required_input):
             pin2nid[pin] = len(pin2nid)
             gate, parameters = expression.split("(")
             parameters = parameters.split(')')[0]
-            nodes.append((pin, {'ntype': gate, 'is_PO': pin == PO_pin}))
-            for input in parameters.split(','):
+            if gate == 'NOT':
+                inv_map[pin] = parameters
+                if pin == PO_pin:
+                    nodes[parameters]['inv'] = True
+            elif gate == 'AND':
+                nodes[pin] =  {'ntype': gate, 'inv':False}
+                for input in parameters.split(','):
+                    src = inv_map.get(input,input)
+                    is_reverted = src!=input
+                    edges.append(
+                        (src,pin,{'r':is_reverted})
+                    )
+            else:
+                assert False
+            # for input in parameters.split(','):
                 # edges.append((input,pin,{}))
-                src_nodes.append(pin2nid[input])
-                dst_nodes.append(pin2nid[pin])
+                # src_nodes.append(pin2nid[input])
+                # dst_nodes.append(pin2nid[pin])
             # else:
             #     assert False, "wrong gate type: {}".format(gate)
 
     if num_input != required_input:
         return None, None
 
+    n_inv = th.zeros((len(nodes), 1), dtype=th.float)
     nodes_type = th.zeros((len(nodes), len(ntype2id)))
-    for node in nodes:
-        nid = pin2nid[node[0]]
-        ntypeID = ntype2id[node[1]['ntype']]
+    for pin,node_info in nodes.items():
+        nid = pin2nid.get(pin,len(pin2nid))
+        ntypeID = ntype2id[node_info['ntype']]
         nodes_type[nid][ntypeID] = 1
+        n_inv[nid][0] = node_info['inv']
+
+    e_reverted = th.zeros((len(edges), 1), dtype=th.long)
+    for eid, (src, dst, edict) in enumerate(edges):
+        src_nodes.append(pin2nid[src])
+        dst_nodes.append(pin2nid[dst])
+        e_reverted[eid][0] = edict['is_reverted']
+
 
     graph = dgl.graph(
         (th.tensor(src_nodes), th.tensor(dst_nodes)), num_nodes=len(pin2nid)
@@ -80,10 +102,12 @@ def parse_single_file(file_path,required_input):
     topo = dgl.topological_nodes_generator(graph)
 
     graph.ndata["ntype"] = nodes_type
-    graph.ndata['ntype2'] = th.argmax(nodes_type, dim=1).squeeze(-1)
+    #graph.ndata['ntype2'] = th.argmax(nodes_type, dim=1).squeeze(-1)
     graph.ndata['output'] = th.zeros(graph.number_of_nodes(), dtype=th.float)
     graph.ndata['output'][topo[-1]] = 1
+    graph.ndata['inv'] = n_inv
 
+    graph.edata['r'] = e_reverted
 
     return graph, topo
 

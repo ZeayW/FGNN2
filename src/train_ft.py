@@ -485,8 +485,8 @@ def train(options):
         val_split_file = "val_nids_masked_nodiv.pkl"
         test_split_file = "test_nids_masked_nodiv.pkl"
     else:
-        val_split_file = "val_nids.pkl"
-        test_split_file = "test_nids.pkl"
+        val_split_file = "val_nids_nomul.pkl"
+        test_split_file = "test_nids_nomul.pkl"
     if os.path.exists(os.path.join(options.datapath, val_split_file)):
         with open(os.path.join(options.datapath, val_split_file), 'rb') as f:
             val_nids = pickle.load(f)
