@@ -97,6 +97,25 @@ def unlabel_low(g, unlabel_threshold):
     g.ndata['label_o'][mask_low] = 0
 
 
+def NCEloss_w2(embeddings, codes,i, j, tao):
+    pos_similarity = th.cosine_similarity(embeddings[i], embeddings[j], dim=-1)
+    neg_similarity_1 = th.cosine_similarity(embeddings[i], embeddings, dim=-1)
+    neg_similarity_2 = th.cosine_similarity(embeddings[j], embeddings, dim=-1)
+    code_similarity = th.cosine_similarity(codes[i], codes, dim=-1)
+    #print(pos_similarity,neg_similarity_1,neg_similarity_2)
+
+    loss_12 = -1 * th.log(
+        th.exp(pos_similarity / tao)
+                    /
+        (th.sum(th.exp((1-code_similarity)*neg_similarity_1 / tao)) -1 )
+    )
+    loss_21 = -1 * th.log(
+        th.exp(pos_similarity / tao)
+        /
+        ( th.sum(th.exp((1-code_similarity)*neg_similarity_2 / tao)) -1 )
+    )
+    return loss_12 + loss_21
+
 def NCEloss_w(embeddings, codes,i, j, tao):
     pos_similarity = th.cosine_similarity(embeddings[i], embeddings[j], dim=-1)
     neg_similarity_1 = th.cosine_similarity(embeddings[i], embeddings, dim=-1)
@@ -107,12 +126,12 @@ def NCEloss_w(embeddings, codes,i, j, tao):
     loss_12 = -1 * th.log(
         th.exp(pos_similarity / tao)
                     /
-        th.sum(code_similarity * th.exp(neg_similarity_1 / tao))
+        (th.sum((1-code_similarity) * th.exp(neg_similarity_1 / tao)) +  th.exp(pos_similarity / tao) )
     )
     loss_21 = -1 * th.log(
         th.exp(pos_similarity / tao)
         /
-        th.sum(code_similarity *th.exp(neg_similarity_2 / tao))
+        ( th.sum((1-code_similarity) *th.exp(neg_similarity_2 / tao)) +  th.exp(pos_similarity / tao) )
     )
     return loss_12 + loss_21
 
