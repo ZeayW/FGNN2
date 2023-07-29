@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 #from MyGAT import GATConv
 from MySageConv import SAGEConv
-from FunctionConv3 import FunctionConv
+from FunctionConv3 import FuncConv
 #from MyGIN import GINConv
 
 from time import time
@@ -29,9 +29,8 @@ class FuncGNN(nn.Module):
         self.hidden_dim = hidden_dim
         self.out_dim = out_dim
         self.dropout = nn.Dropout(p=dropout)
-        self.fc_out = nn.Linear(hidden_dim,out_dim)
 
-        self.conv = FunctionConv(
+        self.conv = FuncConv(
                     hidden_dim,
                     hidden_dim,
                     activation=activation,
@@ -77,8 +76,7 @@ class FuncGNN(nn.Module):
             # we do not need activation function in the last iteration
             act_flag = (i != depth - 1)
             h = self.conv(act_flag, blocks[i], h)
-        if self.hidden_dim!=self.out_dim:
-            h= self.fc_out(h)
+
         return h.squeeze(1)
 
 
@@ -178,7 +176,7 @@ class GraphSage(nn.Module):
         self.fc_init = nn.Linear(in_dim,hidden_dim)
         in_dim = hidden_dim
 
-        for i in range(n_layers):
+        for i in range(n_layers-1):
             self.layers.append(
                 SAGEConv(
                     in_dim,
@@ -222,7 +220,7 @@ class GraphSage(nn.Module):
                     is size of output (PO) feature.
                 """
         h = self.activation(self.fc_init(features))
-        for i in range(self.n_layers + 1):
+        for i in range(self.n_layers):
             if i != 0:
                 h = self.dropout(h)
             h = self.layers[i](True,blocks[i], h)

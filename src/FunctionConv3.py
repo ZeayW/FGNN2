@@ -21,14 +21,14 @@ class MLP(torch.nn.Module):
         return self.layers(x)
 
 
-class FunctionConv(nn.Module):
+class FuncConv(nn.Module):
 
     def __init__(self,
                  hidden_dim,
                  out_dim,
                  flag_proj=False,
                  activation=None):
-        super(FunctionConv, self).__init__()
+        super(FuncConv, self).__init__()
 
         # initialize the gate functions, each for one gate type, e.g., AND, OR, XOR...
 

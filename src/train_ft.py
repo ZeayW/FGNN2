@@ -1,19 +1,18 @@
-r"""
-this script is used to train/fine-tune and validate/test the models
-"""
-
-from dataset import *
+from dataset_gcl import *
 from options import get_options
 from model import *
+from FunctionConv import FuncConv
 import dgl
 import pickle
 import numpy as np
 import os
-from MyDataLoader2 import *
 from time import time
+import math
+import networkx as nx
 from random import shuffle
-import itertools
-
+import random
+import torch as th
+from MyDataLoader2 import *
 
 def DAG2UDG(g):
     r"""
@@ -69,10 +68,6 @@ def cal_ratios(count1,count2):
             ratio = count1[i] / count2[i]
             ratios.append(round(ratio,4))
     return ratios
-
-def unlabel_low(g,unlabel_threshold):
-    mask_low = g.ndata['position'] <= unlabel_threshold
-    g.ndata['adder_o'][mask_low] = 0
 
 def oversample(g,options,in_dim):
     r"""
@@ -169,148 +164,189 @@ def oversample(g,options,in_dim):
     print("ratios:",ratios)
     return train_nodes,pos_count, neg_count
 
-
-def preprocess(data_path,device,options):
-    r"""
-
-    do some preprocessing work: generate dataset / initialize the model
-
-    :param data_path:
-        the path to save the dataset
-    :param device:
-        the device to load the model
-    :param options:
-        some additional parameters
-    :return:
-        no return
-    """
-    print('----------------Preprocessing----------------')
-    label2id = {}
-    if os.path.exists(data_path) is False:
-        os.makedirs(data_path)
+def load_data(options):
+    data_path = options.datapath
     train_data_file = os.path.join(data_path, 'BOOM.pkl')
     val_data_file = os.path.join(data_path, 'RocketCore.pkl')
-    print(val_data_file)
-    # generate and save the test dataset if missing
-    if os.path.exists(val_data_file) is False:
-        print('Validation dataset does not exist. Generating validation dataset... ')
-        datapaths = [os.path.join(options.val_netlist_path, 'implementation')]
-        report_folders = [os.path.join(options.val_netlist_path, 'report')]
-        th.multiprocessing.set_sharing_strategy('file_system')
-        dataset = Dataset(options.val_top,datapaths,report_folders,label2id)
-        g = dataset.batch_graph
-        with open(val_data_file,'wb') as f:
-            pickle.dump(g,f)
-    print('Validation dataset is ready!')
-    # generate and save the train dataset if missing
-    if os.path.exists(train_data_file) is False:
-        print('Training dataset does not exist. Generating training dataset... ')
-        datapaths = [os.path.join(options.train_netlist_path, 'implementation')]
-        report_folders = [os.path.join(options.train_netlist_path, 'report')]
-        th.multiprocessing.set_sharing_strategy('file_system')
-        dataset = Dataset(options.train_top, datapaths, report_folders, label2id)
-        g = dataset.batch_graph
-        with open(train_data_file,'wb') as f:
-            pickle.dump(g,f)
-    print('Training dataset is ready!')
-    if len(label2id) != 0:
-        with open(os.path.join(data_path,'label2id.pkl'),'wb') as f:
-            pickle.dump(label2id,f)
-    if options.pre_train:
-        with open(os.path.join(options.pre_model_dir,'model.pkl'),'rb') as f:
-                _, classifier,_ = pickle.load(f)
-        print("Loading model from:", options.pre_model_dir)
-        print(classifier)
+    in_nlayers = options.in_nlayers if isinstance(options.in_nlayers, int) else options.in_nlayers[0]
+    out_nlayers = options.out_nlayers if isinstance(options.out_nlayers, int) else options.out_nlayers[0]
+
+    label_name = 'adder_o'
+    print("----------------Loading data----------------")
+    with open(train_data_file, 'rb') as f:
+        train_g, _ = pickle.load(f)
+        if options.function:
+            train_g.ndata['h'] = th.ones((train_g.number_of_nodes(), options.hidden_dim), dtype=th.float)
+        train_g.edata['r'] = train_g.edata['r'].squeeze()
+        train_g.ndata['adder_o'][train_g.ndata['mul_o'] == 1] = -1
+        # train_g.ndata['adder_o'][train_g.ndata['sub_o'] == 1] = -1
+        train_graphs = dgl.unbatch(train_g)
+        if options.train_percent == 1:
+            train_graphs = [train_graphs[3]]
+        else:
+            train_graphs = train_graphs[:int(options.train_percent)]
+        train_g = dgl.batch(train_graphs)
+    with open(val_data_file, 'rb') as f:
+        val_g, _ = pickle.load(f)
+        if options.function:
+            val_g.ndata['h'] = th.ones((val_g.number_of_nodes(), options.hidden_dim), dtype=th.float)
+        val_g.edata['r'] = val_g.edata['r'].squeeze()
+        val_g.ndata['adder_o'][val_g.ndata['mul_o'] == 1] = -1
+        # val_g.ndata['adder_o'][val_g.ndata['sub_o'] == 1] = -1
+
+
+    train_g.ndata['position'][train_g.ndata['adder_o'].squeeze(-1) == -1] = 100
+    val_g.ndata['position'][val_g.ndata['adder_o'].squeeze(-1) == -1] = 100
+    unlabel_low(train_g, options.unlabel)
+    unlabel_low(val_g, options.unlabel)
+
+    train_nodes, pos_count, neg_count = oversample(train_g, options, options.in_dim)
+
+    if in_nlayers == 0:
+        in_nlayers = 1
+    if out_nlayers == 0:
+        out_nlayers = 1
+    in_sampler = Sampler([None] * in_nlayers, include_dst_in_src=options.include)
+    out_sampler = Sampler([None] * out_nlayers , include_dst_in_src=options.include)
+
+    if options.mask:
+        val_split_file = "val_nids_masked_div-1mul-1.pkl"
+        test_split_file = "test_nids_masked_div-1mul-1.pkl"
     else:
-        print('Intializing models...')
-    # initialize the  model
-        if options.sage:
-            network = GraphSage
-        elif options.abgnn:
-            network = ABGNN
-        elif options.function:
-            network = FuncGNN
+        val_split_file = "val_nids_nomul.pkl"
+        test_split_file = "test_nids_nomul.pkl"
+    if os.path.exists(os.path.join(options.datapath, val_split_file)):
+        with open(os.path.join(options.datapath, val_split_file), 'rb') as f:
+            val_nids = pickle.load(f)
+        with open(os.path.join(options.datapath, test_split_file), 'rb') as f:
+            test_nids = pickle.load(f)
+    else:
+        nids = th.tensor(range(val_g.number_of_nodes()))
+        mask1 = val_g.ndata['adder_o'].squeeze(-1) != -1
+        if options.mask:
+            mask2 = val_g.ndata['internal'].squeeze() == 0
+            mask = th.logical_and(mask1, mask2)
         else:
-            print('please choose a valid model type!')
-            exit()
+            mask = mask1
+        nids = nids[mask]
+        nids = nids.numpy().tolist()
+        shuffle(nids)
+        val_nids = nids[:int(len(nids) / 10)]
+        test_nids = nids[int(len(nids) / 10):]
 
-        if options.in_nlayers!=-1:
-            model1 = network(
-                ntypes = options.in_dim,
-                hidden_dim=options.hidden_dim,
-                out_dim=options.out_dim,
-                n_layers = options.in_nlayers,
-                in_dim = options.in_dim,
-                dropout=options.gcn_dropout,
-            )
-            out_dim1 = model1.out_dim
-        else:
-            model1 = None
-            out_dim1 = 0
-        if options.out_nlayers!=-1:
-            model2 = network(
-                ntypes=options.in_dim,
-                hidden_dim=options.hidden_dim,
-                out_dim=options.out_dim,
-                n_layers=options.out_nlayers,
-                in_dim=options.in_dim,
-                dropout=options.gcn_dropout,
-            )
-            out_dim2 = model2.out_dim
-        else:
-            model2 = None
-            out_dim2 =0
-        # initialize a multlayer perceptron
+        with open(os.path.join(options.datapath, val_split_file), 'wb') as f:
+            pickle.dump(val_nids, f)
+        with open(os.path.join(options.datapath, test_split_file), 'wb') as f:
+            pickle.dump(test_nids, f)
 
-        mlp = MLP(
-            in_dim = out_dim1+out_dim2,
-            out_dim = options.nlabels,
-            nlayers = options.n_fcn,
-            dropout = options.mlp_dropout
-        ).to(device)
+    # create dataloader for training/validate dataset
+    if options.sage:
+        graph_function = DAG2UDG
+        out_sampler.include_dst_in_src = True
+    else:
+        graph_function = get_reverse_graph
 
-        classifier = BiClassifier(model1,model2,mlp)
-        print(classifier)
-        print("creating model in:",options.model_saving_dir)
-    # save the model and create a file a save the results
-    if os.path.exists(options.model_saving_dir) is False:
-        os.makedirs(options.model_saving_dir)
-        with open(os.path.join(options.model_saving_dir, 'model.pkl'), 'wb') as f:
-            parameters = options
-            pickle.dump((parameters, classifier), f)
-        with open(os.path.join(options.model_saving_dir, 'res.txt'), 'w') as f:
-            pass
+    traindataloader = MyNodeDataLoader(
+        False,
+        train_g,
+        graph_function(train_g),
+        train_nodes,
+        in_sampler,
+        out_sampler,
+        batch_size=options.batch_size,
+        shuffle=True,
+        drop_last=False,
+    )
+    valdataloader = MyNodeDataLoader(
+        True,
+        val_g,
+        graph_function(val_g),
+        val_nids,
+        in_sampler,
+        out_sampler,
+        batch_size=val_g.num_nodes(),
+        shuffle=True,
+        drop_last=False,
+    )
+    testdataloader = MyNodeDataLoader(
+        True,
+        val_g,
+        graph_function(val_g),
+        test_nids,
+        in_sampler,
+        out_sampler,
+        batch_size=val_g.num_nodes(),
+        shuffle=True,
+        drop_last=False,
+    )
 
+    return traindataloader, valdataloader, testdataloader
 
-def load_model(device,options):
-    r"""
-    Load the model
-
-    :param device:
-        the target device that the model is loaded on
-    :param options:
-        some additional parameters
-    :return:
-        param: new options
-        model : loaded model
-        mlp: loaded mlp
-    """
-    model_dir = options.model_saving_dir
-    if os.path.exists(os.path.join(model_dir, 'model.pkl')) is False:
-        return None,None
+options = get_options()
+device = th.device("cuda:" + str(options.gpu) if th.cuda.is_available() else "cpu")
 
 
-    with open(os.path.join(model_dir,'model.pkl'), 'rb') as f:
-        param, classifier = pickle.load(f)
-        param.model_saving_dir = options.model_saving_dir
-        classifier = classifier.to(device)
+def init_model(options):
+    if options.sage:
+        network = GraphSage
+    elif options.abgnn:
+        network = ABGNN
+    elif options.function:
+        network = FuncGNN
+    else:
+        print('please choose a valid model type!')
+        exit()
 
-        # make some changes to the options
-        if options.change_lr:
-            param.learning_rate = options.learning_rate
-        if options.change_alpha:
-            param.alpha = options.alpha
-    return param,classifier
+    if options.in_nlayers != 0:
+        model1 = network(
+            ntypes=options.in_dim,
+            hidden_dim=options.hidden_dim,
+            out_dim=options.out_dim,
+            n_layers=options.in_nlayers,
+            in_dim=options.in_dim,
+            dropout=options.gcn_dropout,
+        )
+        out_dim1 = model1.out_dim
+    else:
+        model1 = None
+        out_dim1 = 0
+    if options.out_nlayers != 0:
+        model2 = network(
+            ntypes=options.in_dim,
+            hidden_dim=options.hidden_dim,
+            out_dim=options.out_dim,
+            n_layers=options.out_nlayers,
+            in_dim=options.in_dim,
+            dropout=options.gcn_dropout,
+        )
+        out_dim2 = model2.out_dim
+    else:
+        model2 = None
+        out_dim2 = 0
+
+    mlp = MLP(
+        in_dim=options.out_dim,
+        out_dim=options.nlabels,
+        nlayers=options.n_fcn,
+        dropout=options.mlp_dropout
+    )
+
+    if options.pre_train:
+        model_save_path = '../checkpoints/{}'.format(options.start_point)
+        assert os.path.exists(model_save_path), 'start_point {} does not exist'. \
+            format(options.start_point)
+        print('load a pretrained model from {}'.format(model_save_path))
+        model1.conv.load_state_dict(th.load(model_save_path))
+    classifier = BiClassifier(model1, model2, mlp)
+
+    print("creating model:")
+    print(classifier)
+
+    return classifier
+
+def unlabel_low(g, unlabel_threshold):
+    mask_low = g.ndata['position'] <= unlabel_threshold
+    g.ndata['adder_o'][mask_low] = 0
 
 
 
@@ -407,186 +443,49 @@ def validate(loaders,label_name,device,model,Loss,beta,options):
     return [loss, acc,recall,precision,F1_score]
 
 
-def train(options):
 
-    th.multiprocessing.set_sharing_strategy('file_system')
-    device = th.device("cuda:"+str(options.gpu) if th.cuda.is_available() else "cpu")
-
-    data_path = options.datapath
-    print(data_path)
-    train_data_file = os.path.join(data_path,'BOOM.pkl')
-    val_data_file = os.path.join(data_path,'RocketCore.pkl')
-
-    # preprocess: generate dataset / initialize the model
-    if options.preprocess :
-        preprocess(data_path,device,options)
-        return
+def train(model):
     print(options)
-    # load the model
-    options, model = load_model(device, options)
-    if model is None:
-        print("No model, please prepocess first , or choose a pretrain model")
-        return
-    print(model)
+    loss_thred = options.loss_thred
+    th.multiprocessing.set_sharing_strategy('file_system')
 
-    in_nlayers = options.in_nlayers if isinstance(options.in_nlayers,int) else options.in_nlayers[0]
-    out_nlayers = options.out_nlayers if isinstance(options.out_nlayers,int) else options.out_nlayers[0]
+    traindataloader, valdataloader, testdataloader = load_data(options)
+    print("Data successfully loaded")
 
     label_name = 'adder_o'
-    print("----------------Loading data----------------")
-    with open(train_data_file,'rb') as f:
-        train_g,_ = pickle.load(f)
-        if options.function:
-            train_g.ndata['h'] = th.ones((train_g.number_of_nodes(),options.hidden_dim),dtype=th.float)
-        #train_g.ndata['label_o'] = train_g.ndata['adder_o']
-        train_g.ndata['ntype2'] = th.argmax(train_g.ndata['ntype'], dim=1).squeeze(-1)
-        train_g.ndata['temp'] = th.ones(size=(train_g.number_of_nodes(), options.hidden_dim),
-                                      dtype=th.float)
-        train_g.ndata['adder_o'][train_g.ndata['mul_o']==1] = -1
-        #train_g.ndata['adder_o'][train_g.ndata['sub_o'] == 1] = -1
-        train_graphs = dgl.unbatch(train_g)
-        if options.train_percent == 1:
-            train_graphs = [train_graphs[3]]
-        else:
-            train_graphs = train_graphs[:int(options.train_percent)]
-        train_g = dgl.batch(train_graphs)
-    with open(val_data_file,'rb') as f:
-        val_g,_ = pickle.load(f)
-        #val_g.ndata['label_o'] = val_g.ndata['adder_o']
-        val_g.ndata['ntype2'] = th.argmax(val_g.ndata['ntype'], dim=1).squeeze(-1)
-        print(len(val_g.ndata['adder_o'][val_g.ndata['adder_o'] == 1]))
-        print(len(val_g.ndata['adder_o'][val_g.ndata['mul_o'] == 1]))
-        val_g.ndata['adder_o'][val_g.ndata['mul_o'] == 1] = -1
-        #val_g.ndata['adder_o'][val_g.ndata['sub_o'] == 1] = -1
-        print(len(val_g.ndata['adder_o'][val_g.ndata['adder_o'] == 1]))
-        #exit()
-        if options.function:
-            val_g.ndata['h'] = th.ones((val_g.number_of_nodes(),options.hidden_dim),dtype=th.float)
-            val_g.ndata['temp'] = th.ones(size=(val_g.number_of_nodes(), options.hidden_dim),
-                                          dtype=th.float)
 
-    #print(train_g.ndata['position'][train_g.ndata['adder_o'].squeeze(-1) == 1].numpy().tolist())
-    train_g.ndata['position'][train_g.ndata['adder_o'].squeeze(-1) == -1] = 100
-    val_g.ndata['position'][val_g.ndata['adder_o'].squeeze(-1) == -1] = 100
-    unlabel_low(train_g, options.unlabel)
-    unlabel_low(val_g, options.unlabel)
-    #print(train_g.ndata['position'][train_g.ndata['adder_o'].squeeze(-1) == 1].numpy().tolist())
-    #print(len())
-    train_nodes, pos_count, neg_count = oversample(train_g, options, options.in_dim)
-
-    if in_nlayers == -1:
-        in_nlayers = 0
-    if out_nlayers == -1:
-        out_nlayers = 0
-    in_sampler = Sampler([None] * (in_nlayers + 1), include_dst_in_src=options.include)
-    out_sampler = Sampler([None] * (out_nlayers + 1), include_dst_in_src=options.include)
-
-    if options.mask:
-        val_split_file = "val_nids_masked_nodiv.pkl"
-        test_split_file = "test_nids_masked_nodiv.pkl"
-    else:
-        val_split_file = "val_nids_nomul.pkl"
-        test_split_file = "test_nids_nomul.pkl"
-    if os.path.exists(os.path.join(options.datapath, val_split_file)):
-        with open(os.path.join(options.datapath, val_split_file), 'rb') as f:
-            val_nids = pickle.load(f)
-        with open(os.path.join(options.datapath, test_split_file), 'rb') as f:
-            test_nids = pickle.load(f)
-    else:
-        nids = th.tensor(range(val_g.number_of_nodes()))
-        mask1 = val_g.ndata['adder_o'].squeeze(-1) != -1
-        if options.mask:
-            mask2 = val_g.ndata['internal'].squeeze() == 0
-            mask = th.logical_and(mask1,mask2)
-        else:
-            mask = mask1
-        nids = nids[mask]
-        nids = nids.numpy().tolist()
-        shuffle(nids)
-        val_nids = nids[:int(len(nids) / 10)]
-        test_nids = nids[int(len(nids) / 10):]
-
-        with open(os.path.join(options.datapath, val_split_file), 'wb') as f:
-            pickle.dump(val_nids, f)
-        with open(os.path.join(options.datapath, test_split_file), 'wb') as f:
-            pickle.dump(test_nids, f)
-
-
-    # create dataloader for training/validate dataset
-    if options.sage:
-        graph_function = DAG2UDG
-        out_sampler.include_dst_in_src = True
-    else:
-        graph_function = get_reverse_graph
-
-    traindataloader = MyNodeDataLoader(
-        False,
-        train_g,
-        graph_function(train_g),
-        train_nodes,
-        in_sampler,
-        out_sampler,
-        batch_size=options.batch_size,
-        shuffle=True,
-        drop_last=False,
-    )
-    valdataloader = MyNodeDataLoader(
-        True,
-        val_g,
-        graph_function(val_g),
-        val_nids,
-        in_sampler,
-        out_sampler,
-        batch_size=val_g.num_nodes(),
-        shuffle=True,
-        drop_last=False,
-    )
-    testdataloader = MyNodeDataLoader(
-        True,
-        val_g,
-        graph_function(val_g),
-        test_nids,
-        in_sampler,
-        out_sampler,
-        batch_size=val_g.num_nodes(),
-        shuffle=True,
-        drop_last=False,
-    )
-    print(len(val_nids))
-
-    #exit()
-    loaders = [valdataloader]
-
-    beta = options.beta
-    # set loss function
-    Loss = nn.CrossEntropyLoss()
     # set the optimizer
+    beta = options.beta
+    Loss = nn.CrossEntropyLoss()
     optim = th.optim.Adam(
         model.parameters(), options.learning_rate, weight_decay=options.weight_decay
     )
+    # optim = th.optim.Adam(
+    #     model.parameters(), options.learning_rate, weight_decay=options.weight_decay
+    # )
     model.train()
     if options.abgnn:
         if model.GCN1 is not None: model.GCN1.train()
         if model.GCN2 is not None: model.GCN2.train()
 
 
-    print("----------------Start training----------------")
     pre_loss = 100
     stop_score = 0
     max_F1_score = 0
 
+    print("----------------Start training----------------")
     # start training
     for epoch in range(options.num_epoch):
         runtime = 0
 
-        total_num,total_loss,correct,fn,fp,tn,tp = 0,0.0,0,0,0,0,0
-        pos_count , neg_count =0, 0
-        pos_embeddings= th.tensor([]).to(device)
-        for ni, (in_blocks,out_blocks) in enumerate(traindataloader):
-            if ni == len(traindataloader)-1:
+        total_num, total_loss, correct, fn, fp, tn, tp = 0, 0.0, 0, 0, 0, 0, 0
+        pos_count, neg_count = 0, 0
+        pos_embeddings = th.tensor([]).to(device)
+        for ni, (in_blocks, out_blocks) in enumerate(traindataloader):
+            if ni == len(traindataloader) - 1:
                 continue
             start_time = time()
-            #print(out_blocks)
+            # print(out_blocks)
             # put the block to device
             in_blocks = [b.to(device) for b in in_blocks]
             out_blocks = [b.to(device) for b in out_blocks]
@@ -639,7 +538,7 @@ def train(options):
             train_loss.backward()
             optim.step()
             endtime = time()
-            runtime += endtime-start_time
+            runtime += endtime - start_time
 
         Train_loss = total_loss / total_num
 
@@ -647,7 +546,7 @@ def train(options):
             stop_score += 1
             if stop_score >= 2:
                 print('Early Stop!')
-                #exit()
+                # exit()
         else:
             stop_score = 0
             pre_loss = Train_loss
@@ -664,45 +563,70 @@ def train(options):
             Train_F1_score = 2 * Train_recall * Train_precision / (Train_recall + Train_precision)
 
         print("epoch[{:d}]".format(epoch))
-        print("training runtime: ",runtime)
+        print("training runtime: ", runtime)
         print("  train:")
-        print("\ttp:", tp, " fp:", fp, " fn:", fn, " tn:", tn, " precision:", round(Train_precision,3))
-        print("\tloss:{:.8f}, acc:{:.3f}, recall:{:.3f}, F1 score:{:.3f}".format(Train_loss,Train_acc,Train_recall,Train_F1_score))
+        print("\ttp:", tp, " fp:", fp, " fn:", fn, " tn:", tn, " precision:", round(Train_precision, 3))
+        print("\tloss:{:.8f}, acc:{:.3f}, recall:{:.3f}, F1 score:{:.3f}".format(Train_loss, Train_acc, Train_recall,
+                                                                                 Train_F1_score))
 
         # validate
         print("  validate:")
-        val_loss, val_acc, val_recall, val_precision, val_F1_score = validate(loaders,label_name, device, model,
-                                                                              Loss, beta,options)
+        val_loss, val_acc, val_recall, val_precision, val_F1_score = validate([valdataloader], label_name, device, model,
+                                                                              Loss, beta, options)
         print("  test:")
         validate([testdataloader], label_name, device, model,
                  Loss, beta, options)
         # save the result of current epoch
-        print("----------------Saving the results---------------")
-        with open(os.path.join(options.model_saving_dir, 'res.txt'), 'a') as f:
-            f.write(str(round(Train_loss, 8)) + " " + str(round(Train_acc, 3)) + " " + str(
-                round(Train_recall, 3)) + " " + str(round(Train_precision,3))+" " + str(round(Train_F1_score, 3)) + "\n")
-            f.write(str(round(val_loss, 3)) + " " + str(round(val_acc, 3)) + " " + str(
-                round(val_recall, 3)) + " "+ str(round(val_precision,3))+" " + str(round(val_F1_score, 3)) + "\n")
-            f.write('\n')
-
+        if options.checkpoint:
+            save_path = '../checkpoints/{}/{}.pth'.format(options.checkpoint, epoch)
+            th.save(model.state_dict(), save_path)
+            print('saved model to', save_path)
         judgement = val_F1_score > max_F1_score
         if judgement:
-           max_F1_score = val_F1_score
-           print("Saving model.... ", os.path.join(options.model_saving_dir))
-           if os.path.exists(options.model_saving_dir) is False:
-              os.makedirs(options.model_saving_dir)
-           with open(os.path.join(options.model_saving_dir, 'model.pkl'), 'wb') as f:
-              parameters = options
-              pickle.dump((parameters, model), f)
-           print("Model successfully saved")
+            max_F1_score = val_F1_score
+            print("Best result!")
 
-
-
-
-if __name__ == "__main__":
-    seed = 1234
-    # th.set_deterministic(True)
+def init(seed):
     th.manual_seed(seed)
     th.cuda.manual_seed(seed)
     np.random.seed(seed)
-    train(get_options())
+    random.seed(seed)
+
+if __name__ == "__main__":
+    seed = random.randint(1, 10000)
+    seed = 9294
+    init(seed)
+    if options.test_iter:
+        assert options.checkpoint, 'no checkpoint dir specified'
+        model_save_path = '../checkpoints/{}/{}.pth'.format(options.checkpoint, options.test_iter)
+        assert os.path.exists(model_save_path), 'start_point {} of checkpoint {} does not exist'.\
+            format(options.test_iter, options.checkpoint)
+        options = th.load('../checkpoints/{}/options.pkl'.format(options.checkpoint))
+        model = init_model(options)
+        model = model.to(device)
+        model.load_state_dict(th.load(model_save_path))
+        stdout_f = '../checkpoints/{}/stdout_{}.log'.format(options.checkpoint,options.test_iter)
+        stderr_f = '../checkpoints/{}/stderr_{}.log'.format(options.checkpoint,options.test_iter)
+        with tee.StdoutTee(stdout_f), tee.StderrTee(stderr_f):
+            #print("continue training from {}".format(options.start_point))
+            print('seed:',seed)
+            train(model)
+
+    elif options.checkpoint:
+        print('saving logs and models to ../checkpoints/{}'.format(options.checkpoint))
+        checkpoint_path = '../checkpoints/{}'.format(options.checkpoint)
+        os.makedirs(checkpoint_path)  # exist not ok
+        th.save(options, os.path.join(checkpoint_path, 'options.pkl'))
+        model = init_model(options)
+        model = model.to(device)
+        # os.makedirs('../checkpoints/{}'.format(options.checkpoint))  # exist not ok
+        stdout_f = '../checkpoints/{}/stdout.log'.format(options.checkpoint)
+        stderr_f = '../checkpoints/{}/stderr.log'.format(options.checkpoint)
+        with tee.StdoutTee(stdout_f), tee.StderrTee(stderr_f):
+            print('seed:',seed)
+            train(model)
+    else:
+        print('No checkpoint is specified. abandoning all model checkpoints and logs')
+        model = init_model(options)
+        model = model.to(device)
+        train(model)

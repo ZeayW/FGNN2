@@ -9,6 +9,7 @@ def get_options(args=None):
     parser.add_argument('--design',type=str)
     parser.add_argument('--rawdata_path', type=str, help='the directory that contains the raw dataset. Type: str')
     parser.add_argument("--checkpoint",type=str,default=None,help= "checkpoint to save the results and logs")
+    parser.add_argument("--test_iter", type=str, default=None,help="iter to test the model")
     parser.add_argument("--start_point",type=str, default=None, help="used for continuing training from a specific checkpoint")
     parser.add_argument("--ntypes", type=int, help='the number of gate types. Type: int', default=10)
     parser.add_argument("--learning_rate", type=float, help = 'the learning rate for training. Type: float.',default=1e-3)
