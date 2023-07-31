@@ -324,12 +324,14 @@ def init_model(options):
         model2 = None
         out_dim2 = 0
 
-    mlp = MLP(
-        in_dim=options.out_dim if (model1 is None or model2 is None) else 2*options.out_dim,
-        out_dim=options.nlabels,
-        nlayers=options.n_fcn,
-        dropout=options.mlp_dropout
-    )
+    # mlp = MLP(
+    #     in_dim=options.out_dim if (model1 is None or model2 is None) else 2*options.out_dim,
+    #     out_dim=options.nlabels,
+    #     nlayers=options.n_fcn,
+    #     dropout=options.mlp_dropout
+    # )
+    mlp_indim = options.out_dim if (model1 is None or model2 is None) else 2*options.out_dim
+    mlp = MLP(mlp_indim, mlp_indim/2,mlp_indim/2,options.nlabels)
 
     if options.pre_train:
         model_save_path = '../checkpoints/{}'.format(options.start_point)

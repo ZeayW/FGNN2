@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 #from MyGAT import GATConv
 from MySageConv import SAGEConv
-from FunctionConv3 import FuncConv
+from FunctionConv3 import FuncConv, MLP
 #from MyGIN import GINConv
 
 from time import time
@@ -252,24 +252,24 @@ class Projection_Head(nn.Module):
 
         return h
 
-class MLP(nn.Module):
-    def __init__(self,in_dim,out_dim,nlayers,activation =nn.ReLU() ,dropout=0.5):
-        super(MLP, self).__init__()
-        self.in_dim = in_dim
-        self.out_dim = out_dim
-        self.nlayers = nlayers
-        self.activation = activation
-        self.dropout = nn.Dropout(p=dropout)
-        self.layers= nn.Sequential()
-        dim1 = in_dim
-        for i in range(nlayers-1):
-            #self.layers.add_module('dropout_{}'.format(i+1),self.dropout)
-            self.layers.add_module('linear_{}'.format(i+1),nn.Linear(dim1, int(dim1/2)))
-            self.layers.add_module('activation_{}'.format(i + 1), self.activation)
-            dim1 = int(dim1 / 2)
-        self.layers.add_module('linear_{}'.format(nlayers),nn.Linear(dim1, out_dim))
-    def forward(self,embedding):
-        return self.layers(embedding).squeeze(-1)
+# class MLP(nn.Module):
+#     def __init__(self,in_dim,out_dim,nlayers,activation =nn.ReLU() ,dropout=0.5):
+#         super(MLP, self).__init__()
+#         self.in_dim = in_dim
+#         self.out_dim = out_dim
+#         self.nlayers = nlayers
+#         self.activation = activation
+#         self.dropout = nn.Dropout(p=dropout)
+#         self.layers= nn.Sequential()
+#         dim1 = in_dim
+#         for i in range(nlayers-1):
+#             #self.layers.add_module('dropout_{}'.format(i+1),self.dropout)
+#             self.layers.add_module('linear_{}'.format(i+1),nn.Linear(dim1, int(dim1/2)))
+#             self.layers.add_module('activation_{}'.format(i + 1), self.activation)
+#             dim1 = int(dim1 / 2)
+#         self.layers.add_module('linear_{}'.format(nlayers),nn.Linear(dim1, out_dim))
+#     def forward(self,embedding):
+#         return self.layers(embedding).squeeze(-1)
 
 
 class BiClassifier(nn.Module):
