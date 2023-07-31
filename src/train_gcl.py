@@ -107,12 +107,12 @@ def NCEloss_w2(embeddings, codes,i, j, tao):
     loss_12 = -1 * th.log(
         th.exp(pos_similarity / tao)
                     /
-        (th.sum(th.exp((1-code_similarity)*neg_similarity_1 / tao)) -1 )
+        (th.sum(th.exp((1-code_similarity)*neg_similarity_1 / tao)) -1 +  th.exp(pos_similarity / tao))
     )
     loss_21 = -1 * th.log(
         th.exp(pos_similarity / tao)
         /
-        ( th.sum(th.exp((1-code_similarity)*neg_similarity_2 / tao)) -1 )
+        ( th.sum(th.exp((1-code_similarity)*neg_similarity_2 / tao)) -1 +  th.exp(pos_similarity / tao))
     )
     return loss_12 + loss_21
 
