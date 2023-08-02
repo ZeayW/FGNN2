@@ -19,15 +19,7 @@ import tee
 
 options = get_options()
 
-class MyLoader(th.utils.data.Dataset):
-    def __init__(self, data):
-        self.data = data
 
-    def __getitem__(self, item):
-        return self.data[item]
-
-    def __len__(self):
-        return len(self.data)
 
 def parse_single_file(nodes,edges,output_node):
     # nodes: list of (node, {"type": type}) here node is a str ,like 'n123' or '1'b1'

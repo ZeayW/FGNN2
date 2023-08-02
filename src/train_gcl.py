@@ -189,6 +189,8 @@ def train(model):
         save_path = '../checkpoints/{}/i{}_aug{}'.format(options.checkpoint, num_input, aug_percent)
         os.makedirs(save_path,exist_ok=True)
         print('Currently used curriculum: ({}, {})'.format(num_input,aug_percent))
+        min_loss = 100000
+        num_iter = 0
         for epoch in range(options.num_epoch):
             seed = random.randint(1, 10000)
             init(seed)
@@ -234,12 +236,19 @@ def train(model):
                 optim.step()
 
             total_loss = total_loss / total_num
+            if total_loss< min_loss:
+                num_iter = 0
+                min_loss = total_loss
+            else:
+                num_iter += 1
+
             print("epoch: {}, loss: {}".format(epoch, total_loss.item()))
             if options.checkpoint:
                 #save_path = '../checkpoints/{}/i{}_aug{}/{}.pth'.format(options.checkpoint, num_input, aug_percent, epoch)
                 th.save(model.state_dict(), os.path.join(save_path,"{}.pth".format(epoch)))
                 print('saved model to', os.path.join(save_path,"{}.pth".format(epoch)))
-            if total_loss.item() < loss_thred:
+            # if total_loss.item() < loss_thred:
+            if num_iter >= 3:
                 print('train loss beyond thredshold, change to the next curriculum setting')
                 break
 

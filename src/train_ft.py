@@ -331,14 +331,14 @@ def init_model(options):
     #     dropout=options.mlp_dropout
     # )
     mlp_indim = options.out_dim if (model1 is None or model2 is None) else 2*options.out_dim
-    mlp = MLP(mlp_indim, mlp_indim/2,mlp_indim/2,options.nlabels)
+    mlp = MLP(mlp_indim, int(mlp_indim/2),int(mlp_indim/2),options.nlabels)
 
     if options.pre_train:
         model_save_path = '../checkpoints/{}'.format(options.start_point)
         assert os.path.exists(model_save_path), 'start_point {} does not exist'. \
             format(options.start_point)
         print('load a pretrained model from {}'.format(model_save_path))
-        model1.conv.load_state_dict(th.load(model_save_path))
+        model1.conv.load_state_dict(th.load(model_save_path,map_location={'cuda:1':'cuda:0'}))
     classifier = BiClassifier(model1, model2, mlp)
 
     print("creating model:")
@@ -617,16 +617,16 @@ if __name__ == "__main__":
     elif options.checkpoint:
         print('saving logs and models to ../checkpoints/{}'.format(options.checkpoint))
         checkpoint_path = '../checkpoints/{}'.format(options.checkpoint)
-        os.makedirs(checkpoint_path)  # exist not ok
-        th.save(options, os.path.join(checkpoint_path, 'options.pkl'))
-        model = init_model(options)
-        model = model.to(device)
-        # os.makedirs('../checkpoints/{}'.format(options.checkpoint))  # exist not ok
         stdout_f = '../checkpoints/{}/stdout.log'.format(options.checkpoint)
         stderr_f = '../checkpoints/{}/stderr.log'.format(options.checkpoint)
+        os.makedirs(checkpoint_path)  # exist not ok
+        th.save(options, os.path.join(checkpoint_path, 'options.pkl'))
         with tee.StdoutTee(stdout_f), tee.StderrTee(stderr_f):
-            print('seed:',seed)
+            model = init_model(options)
+            model = model.to(device)
+            print('seed:', seed)
             train(model)
+
     else:
         print('No checkpoint is specified. abandoning all model checkpoints and logs')
         model = init_model(options)
