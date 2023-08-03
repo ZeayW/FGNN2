@@ -16,9 +16,12 @@ def truthvalue2code(value,width):
     bits = bin(value)[2:].zfill(pow(2,width))
     bits = [int(bit) for bit in bits]
     group_count = (width+1)*[0]
-    # print(width,bits)
+    group_size = (width+1)*[0]
+    #print(width,bits)
     for i,bit in enumerate(bits):
         group = position2group[i]
         group_count[group] += bit
+        group_size[group] += 1
     #print(group_count)
-    return group_count
+
+    return [c/s for (c,s) in zip(group_count,group_size)]
