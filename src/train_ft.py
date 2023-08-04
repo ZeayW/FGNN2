@@ -445,6 +445,8 @@ def validate(loaders,label_name,device,model,Loss,beta,options):
     return [loss, acc,recall,precision,F1_score]
 
 
+def test(model):
+
 
 def train(model):
     print(options)
@@ -606,13 +608,12 @@ if __name__ == "__main__":
         options = th.load('../checkpoints/{}/options.pkl'.format(options.checkpoint))
         model = init_model(options)
         model = model.to(device)
-        model.load_state_dict(th.load(model_save_path))
-        stdout_f = '../checkpoints/{}/stdout_{}.log'.format(options.checkpoint,options.test_iter)
-        stderr_f = '../checkpoints/{}/stderr_{}.log'.format(options.checkpoint,options.test_iter)
-        with tee.StdoutTee(stdout_f), tee.StderrTee(stderr_f):
-            #print("continue training from {}".format(options.start_point))
-            print('seed:',seed)
-            train(model)
+        model.load_state_dict(th.load(model_save_path,map_location={'cuda:1':'cuda:0'}))
+        traindataloader, valdataloader, testdataloader = load_data(options)
+        beta = options.beta
+        Loss = nn.CrossEntropyLoss()
+        validate([testdataloader], 'addre_o', device, model,Loss, beta, options)
+
 
     elif options.checkpoint:
         print('saving logs and models to ../checkpoints/{}'.format(options.checkpoint))
