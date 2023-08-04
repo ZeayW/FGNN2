@@ -94,8 +94,8 @@ class FuncConv(nn.Module):
 
     def apply_nodes_func(self,nodes):
         res = self.func_and(nodes.data['neigh'])
-        # mask = nodes.data['inv'].squeeze()==1
-        # res[mask] = self.func_inv((res[mask]))
+        mask = nodes.data['inv'].squeeze()==1
+        res[mask] = self.func_inv((res[mask]))
         return {'h':res}
 
     def edge_msg(self,edges):
