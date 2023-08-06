@@ -170,7 +170,7 @@ def train(model):
     loss_thred = options.loss_thred
     th.multiprocessing.set_sharing_strategy('file_system')
     data_path = options.datapath
-    traindata_series = load_data(options)
+    traindata_series = set_curriculumn(options)
     print("Data successfully loaded")
 
     # set the optimizer
