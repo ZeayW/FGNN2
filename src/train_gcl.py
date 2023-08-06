@@ -30,20 +30,20 @@ class MyLoader(th.utils.data.Dataset):
 options = get_options()
 device = th.device("cuda:" + str(options.gpu) if th.cuda.is_available() else "cpu")
 
-
-def load_data(options):
-    batch_sizes = {}
+batch_sizes = {}
+def set_curriculumn(options):
+    # set the curriculum learning enviroment: from easy to hard
+    # we first learn on simple netlists with less inputs and
     start_input, start_aug = options.start[0], options.start[1]
     end_input, end_aug = options.end[0], options.end[1]
 
-    data_path = options.datapath
     traindata_series = []
     cur_input = start_input
     while cur_input <= end_input:
-        s = start_aug if cur_input==start_input else 1
-        e = end_aug+1 if cur_input==end_input else 4
+        s = start_aug if cur_input == start_input else 1
+        e = end_aug + 1 if cur_input == end_input else 4
         traindata_series.extend(
-            [(cur_input, i ) for i in options.per2replace[s-1:e]]
+            [(cur_input, i) for i in options.per2replace[s - 1:e]]
         )
         cur_input += 1
 
@@ -56,29 +56,25 @@ def load_data(options):
             batch_sizes[(num_input, num_aug)] = 512
 
     print('The Curriculum Learning Environment is set as: ', traindata_series)
+    return traindata_series
+
+def load_data(num_input,num_aug):
 
     # load the dataset
     print("----------------Loading data----------------")
-    data_loaders = []
+    data_path = options.datapath
+    file = os.path.join(data_path, 'i{}/aug{}.pkl'.format(num_input, num_aug))
+    assert os.path.exists(file), \
+        'i{}/aug{}.pkl is missing, Please call dataset_gcl.py to generate dataset first!'.format(num_input, num_aug)
 
-    # set the curriculum learning enviroment: from easy to hard
-    # we first learn on simple netlists with less inputs and
-    for i, (num_input, num_aug) in enumerate(traindata_series):
-        file = os.path.join(data_path, 'i{}/aug{}.pkl'.format(num_input, num_aug))
-        assert os.path.exists(file), \
-            'i{}/aug{}.pkl is missing, Please call dataset_gcl.py to generate dataset first!'.format(num_input, num_aug)
+    with open(file, 'rb') as f:
+        positive_pairs = pickle.load(f)
+        # train_g.ndata['f_input'] = th.ones(size=(train_g.number_of_nodes(), options.hidden_dim), dtype=th.float)
+    print(len(positive_pairs))
+    sampler = SubsetRandomSampler(th.arange(len(positive_pairs)))
+    loader = GraphDataLoader(MyLoader(positive_pairs), sampler=sampler,batch_size=batch_sizes[(num_input, num_aug)], drop_last=True)
 
-        with open(file, 'rb') as f:
-            positive_pairs = pickle.load(f)
-            # train_g.ndata['f_input'] = th.ones(size=(train_g.number_of_nodes(), options.hidden_dim), dtype=th.float)
-        print(len(positive_pairs))
-        sampler = SubsetRandomSampler(th.arange(len(positive_pairs)))
-        loader = GraphDataLoader(MyLoader(positive_pairs), sampler=sampler,batch_size=batch_sizes[(num_input, num_aug)], drop_last=True)
-        data_loaders.append(
-            (num_input, num_aug, loader)
-        )
-
-    return data_loaders
+    return loader
 
 
 
@@ -173,7 +169,8 @@ def train(model):
     print(options)
     loss_thred = options.loss_thred
     th.multiprocessing.set_sharing_strategy('file_system')
-    data_loaders = load_data(options)
+    data_path = options.datapath
+    traindata_series = load_data(options)
     print("Data successfully loaded")
 
     # set the optimizer
@@ -185,7 +182,8 @@ def train(model):
     Loss = NCEloss_w if options.weighted else NCEloss
     print("----------------Start training----------------")
     cur_time = datetime.datetime.now().strftime("%Y-%m-%d-%H:%M:%S")
-    for num_input, aug_percent, data_loader in data_loaders:
+    for i, (num_input, aug_percent) in enumerate(traindata_series):
+        data_loader = load_data(num_input,aug_percent)
         save_path = '../checkpoints/{}/i{}_aug{}'.format(options.checkpoint, num_input, aug_percent)
         os.makedirs(save_path,exist_ok=True)
         print('Currently used curriculum: ({}, {})'.format(num_input,aug_percent))
@@ -248,7 +246,7 @@ def train(model):
                 th.save(model.state_dict(), os.path.join(save_path,"{}.pth".format(epoch)))
                 print('saved model to', os.path.join(save_path,"{}.pth".format(epoch)))
             # if total_loss.item() < loss_thred:
-            if num_iter >= 3:
+            if num_iter >= options.loss_thred:
                 print('train loss beyond thredshold, change to the next curriculum setting')
                 break
 
