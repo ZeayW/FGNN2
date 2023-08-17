@@ -99,7 +99,7 @@ def init_model(options):
             format(options.start_point)
         print('load a pretrained model from {}'.format(model_save_path))
         eoncoder.load_state_dict(th.load(model_save_path, map_location={'cuda:1': 'cuda:0'}))
-    readout = MLP(options.out_dim,int(options.out_dim/2),int(options.out_dim/2),options.nlabels)
+    readout = MLP(options.out_dim,options.out_dim,int(options.out_dim/2),options.nlabels)
     model = Classifier(eoncoder, readout)
     print("creating model:")
     print(model)
@@ -125,11 +125,13 @@ def test(model,test_data,test_labels,Loss):
             # print(label)
             embedding = model.encoder(graph, topo, PO_nids)
             mean_embedding = th.mean(embedding, dim=0)
+            max_embedding = th.max(embedding, dim=0).values
+            global_embedding = th.cat((mean_embedding, max_embedding), dim=0)
             # print(embedding.shape,mean_embedding.shape)
             if embeddings is None:
-                embeddings = mean_embedding.unsqueeze(0)
+                embeddings = global_embedding.unsqueeze(0)
             else:
-                embeddings = th.cat((embeddings, mean_embedding.unsqueeze(0)), dim=0)
+                embeddings = th.cat((embeddings, global_embedding.unsqueeze(0)), dim=0)
             # print(embeddings.shape)
         labels = th.tensor(test_labels).to(device)
         labels_hat = model.readout(embeddings)
@@ -181,12 +183,14 @@ def train(model):
                 # graph = graph.to(device)
                 #print(label)
                 embedding = model.encoder(graph,topo,PO_nids)
-                mean_embedding = th.mean(embedding,dim=0)
-                #print(embedding.shape,mean_embedding.shape)
+                mean_embedding = th.mean(embedding, dim=0)
+                max_embedding = th.max(embedding, dim=0).values
+                global_embedding = th.cat((mean_embedding, max_embedding), dim=0)
+                # print(embedding.shape,mean_embedding.shape)
                 if embeddings is None:
-                    embeddings = mean_embedding.unsqueeze(0)
+                    embeddings = global_embedding.unsqueeze(0)
                 else:
-                    embeddings = th.cat((embeddings, mean_embedding.unsqueeze(0)), dim=0)
+                    embeddings = th.cat((embeddings, global_embedding.unsqueeze(0)), dim=0)
             #print(embeddings.shape)
             labels = labels.to(device)
             labels_hat = model.readout(embeddings)
