@@ -181,10 +181,10 @@ def load_data(options):
         train_g.ndata['adder_o'][train_g.ndata['mul_o'] == 1] = -1
         # train_g.ndata['adder_o'][train_g.ndata['sub_o'] == 1] = -1
         train_graphs = dgl.unbatch(train_g)
-        if options.train_percent == 1:
-            train_graphs = [train_graphs[3]]
-        else:
-            train_graphs = train_graphs[:int(options.train_percent)]
+        # if options.train_percent == 1:
+        #     train_graphs = [train_graphs[3]]
+        # else:
+        train_graphs = train_graphs[:int(options.train_percent)]
         train_g = dgl.batch(train_graphs)
     with open(val_data_file, 'rb') as f:
         val_g, _ = pickle.load(f)
@@ -445,7 +445,6 @@ def validate(loaders,label_name,device,model,Loss,beta,options):
     return [loss, acc,recall,precision,F1_score]
 
 
-def test(model):
 
 
 def train(model):
@@ -605,14 +604,17 @@ if __name__ == "__main__":
         model_save_path = '../checkpoints/{}/{}.pth'.format(options.checkpoint, options.test_iter)
         assert os.path.exists(model_save_path), 'start_point {} of checkpoint {} does not exist'.\
             format(options.test_iter, options.checkpoint)
+        beta = options.beta
         options = th.load('../checkpoints/{}/options.pkl'.format(options.checkpoint))
+        options.pre_train = False
         model = init_model(options)
         model = model.to(device)
+        #model.load_state_dict(th.load(model_save_path, map_location=th.device('cpu')))
         model.load_state_dict(th.load(model_save_path,map_location={'cuda:1':'cuda:0'}))
         traindataloader, valdataloader, testdataloader = load_data(options)
-        beta = options.beta
+
         Loss = nn.CrossEntropyLoss()
-        validate([testdataloader], 'addre_o', device, model,Loss, beta, options)
+        validate([testdataloader], 'adder_o', device, model,Loss, beta, options)
 
 
     elif options.checkpoint:

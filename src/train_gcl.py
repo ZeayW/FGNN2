@@ -250,7 +250,7 @@ def train(model):
             # if total_loss.item() < loss_thred:
             if num_iter >= options.loss_thred:
                 with open(os.path.join(save_path,'bestEpoch.txt'),'w') as f:
-                    f.write(best_epoch)
+                    f.write(str(best_epoch))
                 model.load_state_dict(th.load(
                     os.path.join(save_path,'{}.pth'.format(best_epoch))
                 ))

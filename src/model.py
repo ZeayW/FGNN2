@@ -271,6 +271,16 @@ class Projection_Head(nn.Module):
 #     def forward(self,embedding):
 #         return self.layers(embedding).squeeze(-1)
 
+class Classifier(nn.Module):
+    def __init__(
+        self, GCN,mlp
+    ):
+        super(Classifier, self).__init__()
+
+        self.encoder = GCN
+        self.readout = mlp
+        # print(self.layers)
+
 
 class BiClassifier(nn.Module):
     def __init__(
