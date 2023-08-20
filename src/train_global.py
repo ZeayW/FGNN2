@@ -72,9 +72,8 @@ def load_data(options):
     data_val = []
     data_path = options.datapath
     for target in ['train','test']:
-        ratio = options.ratio * (total_num_test / total_num_train) if target == 'train' else 1
-        num_map = num_train if target=='train' else num_test
-        #print(target)
+        ratio = options.ratio * (total_num_test / total_num_train)
+        print(target,ratio)
         target_dir = os.path.join(data_path, target)
         for data_file in os.listdir(target_dir):
             if not data_file.endswith('pkl'):
@@ -95,14 +94,14 @@ def load_data(options):
             # print(len(data))
             if target == 'train':
                 data_train.extend(
-                    new_data[:int(ratio*num_map[block])]
+                    new_data[:int(ratio*num_train[block])]
                 )
             elif target == 'test':
-                data_train.extend(
-                    new_data[:int(ratio * num_map[block])]
+                data_test.extend(
+                    new_data[:num_test[block]]
                 )
                 data_val.extend(
-                    new_data[int(ratio * num_map[block]):]
+                    new_data[num_test[block]:num_test[block]+num_val[block]]
                 )
             #print('\t #{}: {}'.format(block, len(new_data[:num_map[block]])))
 
