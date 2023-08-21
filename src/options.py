@@ -3,6 +3,9 @@ import argparse
 
 def get_options(args=None):
     parser = argparse.ArgumentParser()
+    parser.add_argument('--flag_inv',type=bool,default=True,help='control whether use inv for PO')
+    parser.add_argument('--flag_proj', type=bool, default=True, help='control whether use a projection head')
+
     parser.add_argument("--ratio",type=float,default=1,help='ratio for global task')
     parser.add_argument('--weighted',action='store_true',help='decide whether use a weight nce loss or not')
     parser.add_argument('--mask',action='store_true')
@@ -48,7 +51,9 @@ def get_options(args=None):
     parser.add_argument('--start', type=int, nargs='+', default=[5, 1],help='the start of the curriculum learning enviroment. Type: (int,int)')
     parser.add_argument('--end', type=int, nargs='+', default=[7, 3],help='the start of the curriculum learning enviroment. Type: (int,int)')
     parser.add_argument('--num_input', type=int, default=2,help='number of inputs of the generated truthtables. Type: int')
-    parser.add_argument('--loss_thred', type=int, default=3,help='The loss threshold used to stop the pre-training. Type: int')
+    parser.add_argument('--iter_thred', type=float, default=3,
+                        help='The iter threshold used to stop the pre-training. Type: float')
+    parser.add_argument('--loss_thred', type=float, default=0.1,help='The loss threshold used to stop the pre-training. Type: float')
     parser.add_argument("--pre_train", action='store_true',help='Determine whether to used a pre-trained model or not. Type: store_true')
     parser.add_argument('--degree', type=int, default=None,help='Degree of the sample. Type: int')
     parser.add_argument('--tao', type=float, default=0.1,help='temperature hyper-parameter of the NCE loss. Type: str')

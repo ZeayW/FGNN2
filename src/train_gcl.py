@@ -81,7 +81,9 @@ def load_data(num_input,num_aug):
 def init_model(options):
     model = FuncConv(
             hidden_dim=options.hidden_dim,
-            out_dim = options.out_dim
+            out_dim = options.out_dim,
+            flag_proj=options.flag_proj,
+            flag_inv = options.flag_inv
         )
     print("creating model:")
     print(model)
@@ -248,13 +250,14 @@ def train(model):
                 th.save(model.state_dict(), os.path.join(save_path,"{}.pth".format(epoch)))
                 print('saved model to', os.path.join(save_path,"{}.pth".format(epoch)))
             # if total_loss.item() < loss_thred:
-            if num_iter >= options.loss_thred:
+            if num_iter >= options.iter_thred or min_loss<=options.loss_thred:
                 with open(os.path.join(save_path,'bestEpoch.txt'),'w') as f:
                     f.write(str(best_epoch))
                 model.load_state_dict(th.load(
                     os.path.join(save_path,'{}.pth'.format(best_epoch))
                 ))
                 print('train loss beyond thredshold, change to the next curriculum setting')
+                print('start from {}'.format(os.path.join(save_path,'{}.pth'.format(best_epoch))))
                 break
 
 
