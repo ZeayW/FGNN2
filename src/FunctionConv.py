@@ -96,20 +96,27 @@ class FuncConv(nn.Module):
                     rst = self.proj_head(rst)
                 return rst
 
-        def forward_local(graph, feat):
+        def forward_local(blocks, features):
             r"""
-            :param graph: dgl block
-            :param feat:  input features of the block src nodes
+            :param blocks: llist of dgl block
+            :param features:  input features of the first block
             :return:
             """
-            with graph.local_scope():
-                feat_src = feat
-                graph.srcdata['h'] = feat_src
-                graph.update_all(self.edge_msg, fn.mean('m', 'neigh'), self.apply_nodes_func)
-                rst = graph.dstdata['rst']
-                if self.flag_proj:
-                    rst = self.proj_head(rst)
-                return rst
+            depth = len(blocks)
+            h = features
+            r"""
+            The message passes through the blocks layer by layer, from the PIs of the blocks to the POs
+            In each iteration, messages are only passed between two successive blocks
+            """
+            for i in range(depth):
+                graph = blocks[i]
+                with graph.local_scope():
+                    graph.srcdata['h'] = h
+                    graph.update_all(self.edge_msg, fn.mean('m', 'neigh'), self.apply_nodes_func)
+                    h = graph.dstdata['rst']
+            if self.flag_proj:
+                h = self.proj_head(h)
+            return h.squeeze(1)
 
         if flag_usage == 'global':
             return forward_global(*parameters)
