@@ -72,7 +72,8 @@ class FuncConv(nn.Module):
 
     def edge_msg(self,edges):
         msg = edges.src['h']
-        mask = edges.data['r'].squeeze()==1
+        #mask = edges.data['r'].squeeze()==1
+        mask = edges.data['r'] == 1
         msg[mask] = self.func_inv(msg[mask])
 
         return {'m':msg}
@@ -113,7 +114,7 @@ class FuncConv(nn.Module):
                 with graph.local_scope():
                     graph.srcdata['h'] = h
                     graph.update_all(self.edge_msg, fn.mean('m', 'neigh'), self.apply_nodes_func)
-                    h = graph.dstdata['rst']
+                    h = graph.dstdata['h']
             if self.flag_proj:
                 h = self.proj_head(h)
             return h.squeeze(1)

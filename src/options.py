@@ -3,8 +3,8 @@ import argparse
 
 def get_options(args=None):
     parser = argparse.ArgumentParser()
-    parser.add_argument('--flag_inv',type=bool,default=True,help='control whether use inv for PO')
-    parser.add_argument('--flag_proj', type=bool, default=True, help='control whether use a projection head')
+    parser.add_argument('--flag_inv',action='store_true',help='control whether use inv for PO')
+    parser.add_argument('--flag_proj', action='store_true', help='control whether use a projection head')
 
     parser.add_argument("--ratio",type=float,default=1,help='ratio for global task')
     parser.add_argument('--weighted',action='store_true',help='decide whether use a weight nce loss or not')
