@@ -115,3 +115,5 @@ class FuncConv(nn.Module):
             return forward_global(*parameters)
         elif flag_usage == "local":
             return forward_local(*parameters)
+        else:
+            assert False, 'wrong usage of FuncConv'

@@ -216,7 +216,7 @@ def train(model):
                     # print(topo,PO_nids)
                     # print(graph.ndata['output'][PO_nids])
                     # print(graph.ndata['v'][PO_nids])
-                    embeddings[j] = model(graph,topo_levels,PO_nids)
+                    embeddings[j] = model(graph,topo_levels,PO_nids,flag_usage='global')
                     # if i == 0:
                     #     print(code[:10])
                     #     print(embeddings[j][:10])
@@ -256,6 +256,7 @@ def train(model):
                 model.load_state_dict(th.load(
                     os.path.join(save_path,'{}.pth'.format(best_epoch))
                 ))
+                
                 print('train loss beyond thredshold, change to the next curriculum setting')
                 print('start from {}'.format(os.path.join(save_path,'{}.pth'.format(best_epoch))))
                 break
