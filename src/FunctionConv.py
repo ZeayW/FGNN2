@@ -30,16 +30,14 @@ class FuncConv(nn.Module):
                  activation=None):
         super(FuncConv, self).__init__()
 
-        # initialize the gate functions, each for one gate type, e.g., AND, OR, XOR...
         self.hidden_dim = hidden_dim
         self.out_dim =out_dim
         self.flag_proj = flag_proj
         self.flag_inv = flag_inv
         self.func_inv = MLP(hidden_dim,int(hidden_dim/2),int(hidden_dim/2),hidden_dim)
         self.func_and = MLP(hidden_dim,int(hidden_dim/2),int(hidden_dim/2),hidden_dim)
-        #self._out_feats = out_feats
         self.activation = activation
-        self.proj = MLP(hidden_dim,hidden_dim,out_dim,negative_slope=0)
+        self.proj_head = MLP(hidden_dim,hidden_dim,out_dim,negative_slope=0)
         # initialize the parameters
         # self.reset_parameters()
 
@@ -95,7 +93,7 @@ class FuncConv(nn.Module):
                 if PO_mask is not None:
                     rst = rst[PO_mask]
                 if self.flag_proj:
-                    rst = self.proj(rst)
+                    rst = self.proj_head(rst)
                 return rst
 
         def forward_local(graph, feat):
@@ -110,7 +108,7 @@ class FuncConv(nn.Module):
                 graph.update_all(self.edge_msg, fn.mean('m', 'neigh'), self.apply_nodes_func)
                 rst = graph.dstdata['rst']
                 if self.flag_proj:
-                    rst = self.proj(rst)
+                    rst = self.proj_head(rst)
                 return rst
 
         if flag_usage == 'global':
