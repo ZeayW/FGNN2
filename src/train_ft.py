@@ -1,7 +1,7 @@
 from dataset_gcl import *
 from options import get_options
 from model import *
-from FunctionConv import FuncConv
+from FunctionConv import FuncConv, MLP
 import dgl
 import pickle
 import numpy as np
@@ -285,66 +285,26 @@ def load_data(options):
 options = get_options()
 device = th.device("cuda:" + str(options.gpu) if th.cuda.is_available() else "cpu")
 
-
 def init_model(options):
-    if options.sage:
-        network = GraphSage
-    elif options.abgnn:
-        network = ABGNN
-    elif options.function:
-        network = FuncGNN
-    else:
-        print('please choose a valid model type!')
-        exit()
-
-    if options.in_nlayers != 0:
-        model1 = network(
-            ntypes=options.in_dim,
+    model = FuncConv(
             hidden_dim=options.hidden_dim,
-            out_dim=options.out_dim,
-            n_layers=options.in_nlayers,
-            in_dim=options.in_dim,
-            dropout=options.gcn_dropout,
+            out_dim = options.out_dim,
+            flag_proj=options.flag_proj,
+            flag_inv = options.flag_inv
         )
-        out_dim1 = model1.out_dim
-    else:
-        model1 = None
-        out_dim1 = 0
-    if options.out_nlayers != 0:
-        model2 = network(
-            ntypes=options.in_dim,
-            hidden_dim=options.hidden_dim,
-            out_dim=options.out_dim,
-            n_layers=options.out_nlayers,
-            in_dim=options.in_dim,
-            dropout=options.gcn_dropout,
-        )
-        out_dim2 = model2.out_dim
-    else:
-        model2 = None
-        out_dim2 = 0
-
-    # mlp = MLP(
-    #     in_dim=options.out_dim if (model1 is None or model2 is None) else 2*options.out_dim,
-    #     out_dim=options.nlabels,
-    #     nlayers=options.n_fcn,
-    #     dropout=options.mlp_dropout
-    # )
-    mlp_indim = options.out_dim if (model1 is None or model2 is None) else 2*options.out_dim
-    mlp = MLP(mlp_indim, int(mlp_indim/2),int(mlp_indim/2),options.nlabels)
-
+    mlp = MLP(model.out_dim, int(model.out_dim/ 2), int(model.out_dim / 2), options.nlabels,negative_slope=0)
+    print(model)
     if options.pre_train:
         model_save_path = '../checkpoints/{}'.format(options.start_point)
         assert os.path.exists(model_save_path), 'start_point {} does not exist'. \
             format(options.start_point)
         print('load a pretrained model from {}'.format(model_save_path))
-        model1.conv.load_state_dict(th.load(model_save_path,map_location={'cuda:1':'cuda:0'}))
-    classifier = BiClassifier(model1, model2, mlp)
-
-    print("creating model:")
+        model.load_state_dict(th.load(model_save_path,map_location={'cuda:1':'cuda:0'}))
+    classifier = BiClassifier(model,None, mlp,flag_usage='local')
     print(classifier)
 
-    return classifier
+    return model
+
 
 def unlabel_low(g, unlabel_threshold):
     mask_low = g.ndata['position'] <= unlabel_threshold
