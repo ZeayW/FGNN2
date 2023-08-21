@@ -179,12 +179,12 @@ class BiClassifier(nn.Module):
         # print(self.layers)
     def forward(self, in_blocks, in_features,out_blocks,out_features):
         if self.GCN2 is None:
-            h = self.GCN1(in_blocks,in_features,self.flag_usage)
+            h = self.GCN1(in_blocks,in_features,flag_usage=self.flag_usage)
         elif self.GCN1 is None:
-            h = self.GCN2(out_blocks, out_features,self.flag_usage)
+            h = self.GCN2(out_blocks, out_features,flag_usage=self.flag_usage)
         else:
-            h = self.GCN1(in_blocks, in_features,self.flag_usage)
-            rh = self.GCN2(out_blocks,out_features,self.flag_usage)
+            h = self.GCN1(in_blocks, in_features,flag_usage=self.flag_usage)
+            rh = self.GCN2(out_blocks,out_features,flag_usage=self.flag_usage)
             h = th.cat((h,rh),1)
         h = self.mlp(h)
 

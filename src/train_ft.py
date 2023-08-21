@@ -303,7 +303,7 @@ def init_model(options):
     classifier = BiClassifier(model,None, mlp,flag_usage='local')
     print(classifier)
 
-    return model
+    return classifier
 
 
 def unlabel_low(g, unlabel_threshold):
