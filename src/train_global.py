@@ -20,6 +20,7 @@ from torch.utils.data.sampler import SubsetRandomSampler
 import datetime
 from model import Classifier
 
+
 class MyDataset(Dataset):
     def __init__(self, data):
         self.data = data
@@ -118,7 +119,9 @@ def load_data(options):
 def init_model(options):
     eoncoder = FuncConv(
             hidden_dim=options.hidden_dim,
-            out_dim = options.out_dim
+            out_dim = options.out_dim,
+            flag_proj=options.flag_proj,
+            flag_inv=options.flag_inv
         )
     if options.pre_train:
         model_save_path = '../checkpoints/{}'.format(options.start_point)
@@ -153,7 +156,7 @@ def test(model,test_data,test_labels):
             # graph = graph.to(device)
             # print(label)
             count[label] += 1
-            embedding = model.encoder(graph, topo, PO_nids)
+            embedding = model.encoder(graph, topo, PO_nids,flag_usage='global')
             mean_embedding = th.mean(embedding, dim=0)
             max_embedding = th.max(embedding, dim=0).values
             global_embedding = th.cat((mean_embedding, max_embedding), dim=0)
@@ -219,7 +222,7 @@ def train(model):
                 # graph = graph.to(device)
                 #print(label)
                 count[label] += 1
-                embedding = model.encoder(graph,topo,PO_nids)
+                embedding = model.encoder(graph,topo,PO_nids,flag_usage='global')
                 mean_embedding = th.mean(embedding, dim=0)
                 max_embedding = th.max(embedding, dim=0).values
                 global_embedding = th.cat((mean_embedding, max_embedding), dim=0)
