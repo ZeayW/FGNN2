@@ -22,7 +22,7 @@ After you get the pretraining dataset, go to the folder `<repo root>/src` and ru
 python pretrain.py  --flag_inv --weighted --datapath ../datasets/pretrain_data --checkpoint ../checkpoints/example
 ```
 
-We have also provided our pretrained weight, which can be downloaded [here]().
+We have also provided our pretrained weight, which can be downloaded [here](https://drive.google.com/file/d/1NGAJRedx040A4EeN9mALXsly87TRseRF/view?usp=share_link).
 
 ## Downstream task
 
