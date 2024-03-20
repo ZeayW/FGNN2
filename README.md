@@ -33,7 +33,7 @@ Firstly, download the global task dataset [here](https://drive.google.com/file/d
 go to the folder `<repo root>/src` and run the following command:
 
 ``` shell
-python train_global.py --datapath ../dataset/global_data/ --batch_size 128 --nlabels 4  --ratio 0.5 --flag_inv --pre_train --start_point `../checkpoints/example/final.pth`  --checkpoint ../checkpoints/global/example 
+python train_global.py --datapath ../dataset/global_data/ --batch_size 128 --nlabels 4  --ratio 0.5 --flag_inv --pre_train --start_point `../checkpoints/example/weight.pth`  --checkpoint ../checkpoints/global/example 
 ```
 
 ### Code structure
