@@ -1,4 +1,4 @@
-from dataset_gcl import *
+import tee
 from options import get_options
 # from model import *
 from FunctionConv import FuncConv,MLP
@@ -18,8 +18,15 @@ from torch.nn.functional import softmax
 import torch.nn as nn
 from torch.utils.data.sampler import SubsetRandomSampler
 import datetime
-from model import Classifier
 
+class Classifier(nn.Module):
+    def __init__(
+        self, GCN,mlp
+    ):
+        super(Classifier, self).__init__()
+
+        self.encoder = GCN
+        self.readout = mlp
 
 class MyDataset(Dataset):
     def __init__(self, data):
@@ -129,7 +136,8 @@ def init_model(options):
             format(options.start_point)
         print('load a pretrained model from {}'.format(model_save_path))
         eoncoder.load_state_dict(th.load(model_save_path, map_location={'cuda:1': 'cuda:0'}))
-    readout = MLP(options.out_dim*2,options.out_dim,int(options.out_dim/2),options.nlabels)
+    #readout = MLP(options.out_dim*2,options.out_dim,int(options.out_dim/2),options.nlabels)
+    readout = MLP(options.out_dim*2,options.nlabels)
     model = Classifier(eoncoder, readout)
     print("creating model:")
     print(model)

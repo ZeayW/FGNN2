@@ -49,11 +49,11 @@ def set_curriculumn(options):
 
     for num_input, num_aug in traindata_series:
         if num_input == 4:
-            batch_sizes[(num_input, num_aug)] = 256
-        elif num_input == 5:
-            batch_sizes[(num_input, num_aug)] = 350
-        else:
             batch_sizes[(num_input, num_aug)] = 512
+        elif num_input == 5:
+            batch_sizes[(num_input, num_aug)] = 1024
+        else:
+            batch_sizes[(num_input, num_aug)] = 1536
 
     print('The Curriculum Learning Environment is set as: ', traindata_series)
     return traindata_series

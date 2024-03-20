@@ -1,7 +1,7 @@
 from dataset_gcl import *
 from options import get_options
 from model import *
-from FunctionConv import FuncConv
+from FunctionConv import *
 import dgl
 import pickle
 import numpy as np
@@ -12,10 +12,21 @@ import networkx as nx
 from random import shuffle
 import random
 import torch as th
-from torch.utils.data import DataLoader
-from dgl.dataloading import GraphDataLoader,NodeDataLoader
-from torch.utils.data.sampler import SubsetRandomSampler
-from torch.utils.data import DataLoader
+from MyDataLoader import *
+
+
+def get_reverse_graph(g):
+    edges = g.edges()
+    reverse_edges = (edges[1], edges[0])
+
+    rg = dgl.graph(reverse_edges, num_nodes=g.num_nodes())
+    for key, value in g.ndata.items():
+        # print(key,value)
+        rg.ndata[key] = value
+    for key, value in g.edata.items():
+        # print(key,value)
+        rg.edata[key] = value
+    return rg
 
 def type_count(ntypes,count):
     for tp in ntypes:
@@ -50,14 +61,19 @@ def oversample(g,options,in_dim):
     print("total number of nodes: ", g.num_nodes())
 
 
+
     labels = g.ndata['adder_o']
+
     lowbit_mask = g.ndata['position']<=3
     # unlabel the nodes in muldiv
     no_muldiv_mask = labels.squeeze(-1)!=-1
-    print('no_mul',len(labels[no_muldiv_mask]))
+    no_internal_mask = g.ndata['internal'].squeeze() == 0
+    mask = th.logical_and(no_muldiv_mask, no_internal_mask)
+    print('#nodes after masking',len(labels[mask]))
     nodes = th.tensor(range(g.num_nodes()))
-    nodes = nodes[no_muldiv_mask]
-    labels = labels[no_muldiv_mask]
+    nodes = nodes[mask]
+
+    labels = labels[mask]
     print(len(nodes))
 
     mask_pos = (labels ==1).squeeze(1)
@@ -69,13 +85,14 @@ def oversample(g,options,in_dim):
     shuffle(neg_nodes)
     pos_size = len(pos_nodes)
     neg_size = len(neg_nodes)
-
+    print(len(g.ndata['position'][g.ndata['adder_o'].squeeze(-1) == 1].numpy().tolist()))
+    print(len(pos_nodes))
     ratio = float(neg_size) / float(pos_size)
     print("ratio=", ratio)
 
 
-    pos_count = th.zeros(size=(1, in_dim)).squeeze(0).numpy().tolist()
-    neg_count = th.zeros(size=(1, in_dim)).squeeze(0).numpy().tolist()
+    pos_count = th.zeros(size=(1, in_dim+1)).squeeze(0).numpy().tolist()
+    neg_count = th.zeros(size=(1, in_dim+1)).squeeze(0).numpy().tolist()
     pos_types = g.ndata['ntype'][pos_nodes]
     neg_types = g.ndata['ntype'][neg_nodes]
     pos_types = th.argmax(pos_types, dim=1)
@@ -118,231 +135,303 @@ def oversample(g,options,in_dim):
     print("ratios:",ratios)
     return train_nodes,pos_count, neg_count
 
-
-
-class MyLoader(th.utils.data.Dataset):
-    def __init__(self, data):
-        self.data = data
-
-    def __getitem__(self, item):
-        return self.data[item]
-
-    def __len__(self):
-        return len(self.data)
-
 def load_data(options):
-    batch_sizes = {}
-    start_input, start_aug = options.start[0], options.start[1]
-    end_input, end_aug = options.end[0], options.end[1]
-
     data_path = options.datapath
     train_data_file = os.path.join(data_path, 'BOOM.pkl')
     val_data_file = os.path.join(data_path, 'RocketCore.pkl')
+    in_nlayers = options.in_nlayers if isinstance(options.in_nlayers, int) else options.in_nlayers[0]
+    out_nlayers = options.out_nlayers if isinstance(options.out_nlayers, int) else options.out_nlayers[0]
 
-    with open(train_data_file,'rb') as f:
-        train_g,_ = pickle.load(f)
+    label_name = 'adder_o'
+    print("----------------Loading data----------------")
+    with open(train_data_file, 'rb') as f:
+        train_g, _ = pickle.load(f)
+        if options.function:
+            train_g.ndata['h'] = th.ones((train_g.number_of_nodes(), options.hidden_dim), dtype=th.float)
+        train_g.edata['r'] = train_g.edata['r'].squeeze()
+        train_g.ndata['adder_o'][train_g.ndata['mul_o'] == 1] = -1
+        # train_g.ndata['adder_o'][train_g.ndata['sub_o'] == 1] = -1
         train_graphs = dgl.unbatch(train_g)
-        if options.train_percent == 1:
-            train_graphs = [train_graphs[3]]
-        else:
-            train_graphs = train_graphs[:int(options.train_percent)]
+        # if options.train_percent == 1:
+        #     train_graphs = [train_graphs[3]]
+        # else:
+        train_graphs = train_graphs[:int(options.train_percent)]
         train_g = dgl.batch(train_graphs)
-        train_g_topo = dgl.topological_nodes_generator(train_g)
-        train_g.ndata['adder_o'][train_g.ndata['mul_o']==1] = 0
-        train_g.ndata['adder_o'][train_g.ndata['position']<=3] = 0
-        train_g.ndata['ntype2'] = th.argmax(train_g.ndata['ntype'], dim=1).squeeze(-1)
-    with open(val_data_file,'rb') as f:
-        val_g,_ = pickle.load(f)
-        val_g.ndata['adder_o'][val_g.ndata['mul_o'] == 1] = 0
-        val_g.ndata['adder_o'][val_g.ndata['position'] <= 3] = 0
-        val_g_topo = dgl.topological_nodes_generator(val_g)
-        val_g.ndata['ntype2'] = th.argmax(val_g.ndata['ntype'], dim=1).squeeze(-1)
-    return train_g, train_g_topo, val_g,val_g_topo
+    with open(val_data_file, 'rb') as f:
+        val_g, _ = pickle.load(f)
+        if options.function:
+            val_g.ndata['h'] = th.ones((val_g.number_of_nodes(), options.hidden_dim), dtype=th.float)
+        val_g.edata['r'] = val_g.edata['r'].squeeze()
+        val_g.ndata['adder_o'][val_g.ndata['mul_o'] == 1] = -1
+        # val_g.ndata['adder_o'][val_g.ndata['sub_o'] == 1] = -1
 
+
+    train_g.ndata['position'][train_g.ndata['adder_o'].squeeze(-1) == -1] = 100
+    val_g.ndata['position'][val_g.ndata['adder_o'].squeeze(-1) == -1] = 100
+    unlabel_low(train_g, options.unlabel)
+    unlabel_low(val_g, options.unlabel)
+
+    train_nodes, pos_count, neg_count = oversample(train_g, options, options.in_dim)
+
+    if in_nlayers == 0:
+        in_nlayers = 1
+    if out_nlayers == 0:
+        out_nlayers = 1
+    in_sampler = Sampler([None] * in_nlayers, include_dst_in_src=options.include)
+    out_sampler = Sampler([None] * out_nlayers , include_dst_in_src=options.include)
+    nids = th.tensor(range(val_g.number_of_nodes()))
+    mask1 = val_g.ndata['adder_o'].squeeze(-1) != -1
+    mask2 = val_g.ndata['internal'].squeeze() == 0
+    mask = th.logical_and(mask1, mask2)
+    nids = nids[mask]
+    nids = nids.numpy().tolist()
+    shuffle(nids)
+    val_nids = nids
+
+    # create dataloader for training/validate dataset
+    graph_function = get_reverse_graph
+
+    traindataloader = MyNodeDataLoader(
+        False,
+        train_g,
+        graph_function(train_g),
+        train_nodes,
+        in_sampler,
+        out_sampler,
+        batch_size=options.batch_size,
+        shuffle=True,
+        drop_last=False,
+    )
+    valdataloader = MyNodeDataLoader(
+        True,
+        val_g,
+        graph_function(val_g),
+        val_nids,
+        in_sampler,
+        out_sampler,
+        batch_size=val_g.num_nodes(),
+        shuffle=True,
+        drop_last=False,
+    )
+
+    testdataloader = MyNodeDataLoader(
+        True,
+        val_g,
+        graph_function(val_g),
+        test_nids,
+        in_sampler,
+        out_sampler,
+        batch_size=val_g.num_nodes(),
+        shuffle=True,
+        drop_last=False,
+    )
+
+    return traindataloader, valdataloader, testdataloader
 
 options = get_options()
 device = th.device("cuda:" + str(options.gpu) if th.cuda.is_available() else "cpu")
 
-
 def init_model(options):
     model = FuncConv(
-            ntypes=options.ntypes,
             hidden_dim=options.hidden_dim,
-            out_dim = options.out_dim
+            out_dim = options.out_dim,
+            flag_proj=options.flag_proj,
+            flag_inv = options.flag_inv
         )
-    classifier = MLP(
-        in_dim=options.out_dim,
-        out_dim=options.nlabels,
-        nlayers=options.n_fcn,
-        dropout=options.mlp_dropout
-    )
-
-    print("creating model:")
+    mlp = MLP(model.out_dim, int(model.out_dim/ 2), int(model.out_dim / 2),options.nlabels,negative_slope=options.neg_slope,dropout=True)
+    #mlp = MLP(model.out_dim, int(model.out_dim/2), options.nlabels,negative_slope=0)
     print(model)
+    if options.pre_train:
+        model_save_path = '../checkpoints/{}'.format(options.start_point)
+        assert os.path.exists(model_save_path), 'start_point {} does not exist'. \
+            format(options.start_point)
+        print('load a pretrained model from {}'.format(model_save_path))
+        model.load_state_dict(th.load(model_save_path,map_location={'cuda:1':'cuda:0'}))
+    classifier = BiClassifier(model,None, mlp,flag_usage='local')
     print(classifier)
 
-    return model,classifier
+    return classifier
+
 
 def unlabel_low(g, unlabel_threshold):
-    mask_low = g.ndata['position'] <= unlabel_threshold
-    g.ndata['label_o'][mask_low] = 0
+    mask1 = th.logical_or(g.ndata['adder_o'] == 1, g.ndata['sub_o'] == 1)
+    mask_low = th.logical_and(mask1, g.ndata['position'] <= unlabel_threshold)
+    # mask_low = g.ndata['position'] <= unlabel_threshold
+    g.ndata['adder_o'][mask_low] = -1
 
 
-# calculate the NCE loss
-def NCEloss(embeddings, i, j, tao):
-    pos_similarity = th.cosine_similarity(embeddings[i], embeddings[j], dim=-1)
-    neg_similarity_1 = th.cosine_similarity(embeddings[i], embeddings, dim=-1)
-    neg_similarity_2 = th.cosine_similarity(embeddings[j], embeddings, dim=-1)
-    #print(pos_similarity,neg_similarity_1,neg_similarity_2)
-    loss_12 = -1 * th.log(
-        th.exp(pos_similarity / tao)
-                    /
-        (th.sum(th.exp(neg_similarity_1 / tao)) - math.exp(1 / tao))
-    )
-    loss_21 = -1 * th.log(
-        th.exp(pos_similarity / tao)
-        /
-        (th.sum(th.exp(neg_similarity_2 / tao)) - math.exp(1 / tao))
-    )
-    return loss_12 + loss_21
 
+def validate(loaders,label_name,device,model,Loss,beta,options):
+    r"""
 
-def val(val_g,val_g_topo,model,classifier,Loss,beta):
-    model.eval()
-    classifier.eval()
+    validate the model
+
+    :param loaders:
+        the loaders to load the validation dataset
+    :param label_name:
+        target label name
+    :param device:
+        device
+    :param model:
+        trained model
+    :param mlp:
+        trained mlp
+    :param Loss:
+        used loss function
+    :param beta:
+        a hyperparameter that determines the thredshold of binary classification
+    :param options:
+        some parameters
+    :return:
+        result of the validation: loss, acc,recall,precision,F1_score
+    """
+
     total_num, total_loss, correct, fn, fp, tn, tp = 0, 0.0, 0, 0, 0, 0, 0
+    runtime = 0
 
     with th.no_grad():
-        val_g.ndata['temp'] = th.ones(size=(val_g.number_of_nodes(), options.hidden_dim),
-                                        dtype=th.float)
-        val_g.ndata['h'] = th.ones((val_g.number_of_nodes(), model.hidden_dim), dtype=th.float)
-        val_g = val_g.to(device)
-        labels_gd = val_g.ndata['adder_o'].squeeze(1)
-        total_num += len(labels_gd)
-        topo_levels = [l.to(device) for l in val_g_topo]
-        embeddings = model(val_g, topo_levels, None)
-        labels_hat = classifier(embeddings).squeeze(0)
-        if get_options().nlabels != 1:
-            pos_prob = nn.functional.softmax(labels_hat, 1)[:, 1]
-        else:
-            pos_prob = th.sigmoid(labels_hat)
-        pos_prob[pos_prob >= beta] = 1
-        pos_prob[pos_prob < beta] = 0
-        predict_labels = pos_prob
-        #val_loss = Loss(labels_hat, labels_gd)
-        #total_loss += val_loss.item() * len(labels_gd)
-
-        correct += (
-                predict_labels == labels_gd
-        ).sum().item()
-
-        # count fake negatives (fn), true negatives (tp), true negatives (tn), true post
-        fn += ((predict_labels == 0) & (labels_gd != 0)).sum().item()
-        tp += ((predict_labels != 0) & (labels_gd != 0)).sum().item()
-        tn += ((predict_labels == 0) & (labels_gd == 0)).sum().item()
-        fp += ((predict_labels != 0) & (labels_gd == 0)).sum().item()
-
-        Val_loss = total_loss / total_num
-
-        # calculate accuracy, recall, precision and F1-score
-        Val_acc = correct / total_num
-        Val_recall = 0
-        Val_precision = 0
-        if tp != 0:
-            Val_recall = tp / (tp + fn)
-            Val_precision = tp / (tp + fp)
-        Val_F1_score = 0
-        if Val_precision != 0 or Val_recall != 0:
-            Val_F1_score = 2 * Val_recall * Val_precision / (Val_recall + Val_precision)
-
-        print("  val:")
-        print("\ttp:", tp, " fp:", fp, " fn:", fn, " tn:", tn, " precision:", round(Val_precision, 3))
-        print("\tloss:{:.8f}, acc:{:.3f}, recall:{:.3f}, F1 score:{:.3f}".format(Val_loss, Val_acc, Val_recall,
-                                                                                 Val_F1_score))
-
-
-def train(model,classifier):
-    print(options)
-    loss_thred = options.loss_thred
-    th.multiprocessing.set_sharing_strategy('file_system')
-    print("Data successfully loaded")
-
-    train_g, train_g_topo, val_g, val_g_topo = load_data(options)
-    train_nodes, pos_count, neg_count = oversample(train_g, options, options.ntypes)
-    print(len(train_nodes))
-    # set the optimizer
-    Loss = nn.CrossEntropyLoss()
-    optim = th.optim.Adam([
-        {'params':model.parameters(),'lr':options.learning_rate},
-        {'params': classifier.parameters(), 'lr': options.learning_rate}
-    ])
-    # optim = th.optim.Adam(
-    #     model.parameters(), options.learning_rate, weight_decay=options.weight_decay
-    # )
-    model.train()
-    classifier.train()
-
-    beta = options.beta
-    pre_loss = 100
-    print("----------------Start training----------------")
-    # train_g.ndata['temp'] = th.ones(size=(train_g.number_of_nodes(), options.hidden_dim),
-    #                                 dtype=th.float)
-    # train_g.ndata['h'] = th.ones((train_g.number_of_nodes(), model.hidden_dim))
-    train_graphs = [(train_g, train_g_topo)]
-    for epoch in range(options.num_epoch):
-        total_num, total_loss, correct, fn, fp, tn, tp = 0, 0.0, 0, 0, 0, 0, 0
-        for graph,topo in train_graphs:
-            sampler = SubsetRandomSampler(th.tensor(train_nodes))
-            loader = DataLoader(MyLoader(range(graph.number_of_nodes())), sampler=sampler,
-                                batch_size=options.batch_size, drop_last=True)
-            graph = graph.to(device)
-
-            for j, nodes in enumerate(loader):
-                graph.ndata['temp'] = th.ones(size=(graph.number_of_nodes(), options.hidden_dim),
-                                                dtype=th.float).to(device)
-                graph.ndata['h'] = th.ones((graph.number_of_nodes(), model.hidden_dim)).to(device)
-                #print(nodes)
-                #print(train_g_topo)
-                #print(len(nodes))
-                #print(len(train_g_topo),train_g.number_of_edges())
-                th.cuda.empty_cache()
-                # train_g.ndata['temp'] = th.ones(size=(train_g.number_of_nodes(), options.hidden_dim),
-                #                               dtype=th.float).to(device)
-                # train_g.ndata['h'] = th.ones((train_g.number_of_nodes(), model.hidden_dim), dtype=th.float).to(device)
-                labels_gd = graph.ndata['adder_o'][nodes].squeeze(1)
-                total_num += len(labels_gd)
-                topo_levels = [l.to(device) for l in topo]
-                embeddings = model(graph, topo_levels, None).squeeze(0)[nodes]
-                #print(embeddings,len(embeddings))
-                labels_hat = classifier(embeddings)
-                if get_options().nlabels != 1:
-                    pos_prob = nn.functional.softmax(labels_hat, 1)[:, 1]
-                else:
-                    pos_prob = th.sigmoid(labels_hat)
+        for i,loader in enumerate(loaders):
+            for ni, (in_blocks,out_blocks) in enumerate(loader):
+                start = time()
+                in_blocks = [b.to(device) for b in in_blocks]
+                out_blocks = [b.to(device) for b in out_blocks]
+                #print(out_blocks)
+                # get in input features
+                in_input_features = in_blocks[0].srcdata["h"]
+                out_input_features = out_blocks[0].srcdata["h"]
+                # the central nodes are the output of the final block
+                output_labels = in_blocks[-1].dstdata[label_name].squeeze(1)
+                total_num += len(output_labels)
+                # predict the labels of central nodes
+                label_hat = model(in_blocks, in_input_features, out_blocks, out_input_features)
+                pos_prob = nn.functional.softmax(label_hat, 1)[:, 1]
+                # adjust the predicted labels based on a given thredshold beta
                 pos_prob[pos_prob >= beta] = 1
                 pos_prob[pos_prob < beta] = 0
                 predict_labels = pos_prob
-                #print(labels_hat.shape,labels_gd.shape)
-                train_loss = Loss(labels_hat, labels_gd)
-                print(train_loss)
-                total_loss += train_loss.item() * len(labels_gd)
+
+                end = time()
+                runtime += end - start
+
+                # calculate the loss
+                val_loss = Loss(label_hat, output_labels)
+                total_loss += val_loss.item() * len(output_labels)
 
                 correct += (
-                        predict_labels == labels_gd
+                        predict_labels == output_labels
                 ).sum().item()
 
-                # count fake negatives (fn), true negatives (tp), true negatives (tn), true post
-                fn += ((predict_labels == 0) & (labels_gd != 0)).sum().item()
-                tp += ((predict_labels != 0) & (labels_gd != 0)).sum().item()
-                tn += ((predict_labels == 0) & (labels_gd == 0)).sum().item()
-                fp += ((predict_labels != 0) & (labels_gd == 0)).sum().item()
+                # count fake negatives (fn), true negatives (tp), true negatives (tn), true postives (tp)
+                fn += ((predict_labels == 0) & (output_labels != 0)).sum().item()
+                tp += ((predict_labels != 0) & (output_labels != 0)).sum().item()
+                tn += ((predict_labels == 0) & (output_labels == 0)).sum().item()
+                fp += ((predict_labels != 0) & (output_labels == 0)).sum().item()
 
-                optim.zero_grad()
-                train_loss.backward()
-                optim.step()
-                th.cuda.empty_cache()
-                if j%10==0:
-                    val(val_g, val_g_topo, model, classifier, Loss, beta)
+    loss = total_loss / total_num
+    acc = correct / total_num
+
+    # calculate recall, precision and F1-score
+    recall = 0
+    precision = 0
+    if tp != 0:
+        recall = tp / (tp + fn)
+        precision = tp / (tp + fp)
+    F1_score = 0
+    if precision != 0 or recall != 0:
+        F1_score = 2 * recall * precision / (recall + precision)
+
+    print("\ttp:", tp, " fp:", fp, " fn:", fn, " tn:", tn, " precision:", round(precision, 3))
+    print("\tloss:{:.3f}, acc:{:.3f}, recall:{:.3f}, F1 score:{:.3f}".format(loss, acc,recall, F1_score))
+
+    return [loss, acc,recall,precision,F1_score]
+
+
+
+
+def train(model):
+    print(options)
+    th.multiprocessing.set_sharing_strategy('file_system')
+    traindataloader, valdataloader, testdataloader = load_data(options)
+    print("Data successfully loaded")
+
+    label_name = 'adder_o'
+
+    # set the optimizer
+    beta = options.beta
+    Loss = nn.CrossEntropyLoss()
+    optim = th.optim.Adam(
+        model.parameters(), options.learning_rate, weight_decay=options.weight_decay
+    )
+    model.train()
+
+    pre_loss = 100
+    stop_score = 0
+    max_F1_score = 0
+
+    print("----------------Start training----------------")
+    # start training
+    for epoch in range(options.num_epoch):
+        runtime = 0
+
+        total_num, total_loss, correct, fn, fp, tn, tp = 0, 0.0, 0, 0, 0, 0, 0
+        pos_count, neg_count = 0, 0
+        pos_embeddings = th.tensor([]).to(device)
+        for ni, (in_blocks, out_blocks) in enumerate(traindataloader):
+            if ni == len(traindataloader) - 1:
+                continue
+            start_time = time()
+            # print(out_blocks)
+            # put the block to device
+            in_blocks = [b.to(device) for b in in_blocks]
+            out_blocks = [b.to(device) for b in out_blocks]
+            # get in input features
+            in_input_features = in_blocks[0].srcdata["h"]
+            out_input_features = out_blocks[0].srcdata["h"]
+
+            # the central nodes are the output of the final block
+            output_labels = in_blocks[-1].dstdata[label_name].squeeze(1)
+            total_num += len(output_labels)
+            # predict the labels of central nodes
+
+            label_hat = model(in_blocks, in_input_features, out_blocks, out_input_features)
+            if get_options().nlabels != 1:
+                pos_prob = nn.functional.softmax(label_hat, 1)[:, 1]
+            else:
+                pos_prob = th.sigmoid(label_hat)
+            # adjust the predicted labels based on a given thredshold beta
+            pos_prob[pos_prob >= beta] = 1
+            pos_prob[pos_prob < beta] = 0
+            predict_labels = pos_prob
+
+            # calculate the loss
+            if options.alpha != 1:
+                pos_index = (output_labels != 0)
+                neg_index = (output_labels == 0)
+                pos_loss = Loss(label_hat[pos_index], output_labels[pos_index]) * pos_index.sum().item()
+                neg_loss = Loss(label_hat[neg_index], output_labels[neg_index]) * neg_index.sum().item()
+                train_loss = (options.alpha * pos_loss + neg_loss) / len(output_labels)
+            else:
+                train_loss = Loss(label_hat, output_labels)
+            total_loss += train_loss.item() * len(output_labels)
+            endtime = time()
+            runtime += endtime - start_time
+
+            correct += (
+                    predict_labels == output_labels
+            ).sum().item()
+
+            # count fake negatives (fn), true negatives (tp), true negatives (tn), true post
+            fn += ((predict_labels == 0) & (output_labels != 0)).sum().item()
+            tp += ((predict_labels != 0) & (output_labels != 0)).sum().item()
+            tn += ((predict_labels == 0) & (output_labels == 0)).sum().item()
+            fp += ((predict_labels != 0) & (output_labels == 0)).sum().item()
+
+            start_time = time()
+            optim.zero_grad()
+            train_loss.backward()
+            optim.step()
+            endtime = time()
+            runtime += endtime - start_time
 
         Train_loss = total_loss / total_num
 
@@ -367,12 +456,28 @@ def train(model,classifier):
             Train_F1_score = 2 * Train_recall * Train_precision / (Train_recall + Train_precision)
 
         print("epoch[{:d}]".format(epoch))
-        #print("training runtime: ", runtime)
+        print("training runtime: ", runtime)
         print("  train:")
         print("\ttp:", tp, " fp:", fp, " fn:", fn, " tn:", tn, " precision:", round(Train_precision, 3))
         print("\tloss:{:.8f}, acc:{:.3f}, recall:{:.3f}, F1 score:{:.3f}".format(Train_loss, Train_acc, Train_recall,
                                                                                  Train_F1_score))
-        val(val_g,val_g_topo,model, classifier, Loss, beta)
+
+        # validate
+        print("  validate:")
+        val_loss, val_acc, val_recall, val_precision, val_F1_score = validate([valdataloader], label_name, device, model,
+                                                                              Loss, beta, options)
+        # print("  test:")
+        # validate([testdataloader], label_name, device, model,
+        #          Loss, beta, options)
+        # save the result of current epoch
+        if options.checkpoint:
+            save_path = '../checkpoints/{}/{}.pth'.format(options.checkpoint, epoch)
+            th.save(model.state_dict(), save_path)
+            print('saved model to', save_path)
+        judgement = val_F1_score > max_F1_score
+        if judgement:
+            max_F1_score = val_F1_score
+            print("Best result!")
 
 def init(seed):
     th.manual_seed(seed)
@@ -384,40 +489,39 @@ if __name__ == "__main__":
     seed = random.randint(1, 10000)
     seed = 9294
     init(seed)
-    if options.start_iter:
+    if options.test_iter:
         assert options.checkpoint, 'no checkpoint dir specified'
-        model_save_path = '../checkpoints/{}/{}.pth'.format(options.checkpoint, options.start_iter)
-        assert os.path.exists(model_save_path), 'start_iter {} of checkpoint {} does not exist'.\
-            format(options.start_iter, options.checkpoint)
+        model_save_path = '../checkpoints/{}/{}.pth'.format(options.checkpoint, options.test_iter)
+        assert os.path.exists(model_save_path), 'start_point {} of checkpoint {} does not exist'.\
+            format(options.test_iter, options.checkpoint)
+        beta = options.beta
         options = th.load('../checkpoints/{}/options.pkl'.format(options.checkpoint))
-        model, classifier = init_model(options)
+        options.pre_train = False
+        model = init_model(options)
         model = model.to(device)
-        classifier = classifier.to(device)
-        model.load_state_dict(th.load(model_save_path))
-        stdout_f = '../checkpoints/{}/stdout_{}.log'.format(options.checkpoint,options.start_iter)
-        stderr_f = '../checkpoints/{}/stderr_{}.log'.format(options.checkpoint,options.start_iter)
-        with tee.StdoutTee(stdout_f), tee.StderrTee(stderr_f):
-            print("continue training from {}".format(options.start_iter))
-            print('seed:',seed)
-            train(model, classifier)
+        #model.load_state_dict(th.load(model_save_path, map_location=th.device('cpu')))
+        model.load_state_dict(th.load(model_save_path,map_location={'cuda:1':'cuda:0'}))
+        _, _, testdataloader = load_data(options)
+
+        Loss = nn.CrossEntropyLoss()
+        validate([testdataloader], 'adder_o', device, model,Loss, beta, options)
+
 
     elif options.checkpoint:
         print('saving logs and models to ../checkpoints/{}'.format(options.checkpoint))
         checkpoint_path = '../checkpoints/{}'.format(options.checkpoint)
-        os.makedirs(checkpoint_path)  # exist not ok
-        th.save(options, os.path.join(checkpoint_path, 'options.pkl'))
-        model, classifier = init_model(options)
-        model = model.to(device)
-        classifier = classifier.to(device)
-        # os.makedirs('../checkpoints/{}'.format(options.checkpoint))  # exist not ok
         stdout_f = '../checkpoints/{}/stdout.log'.format(options.checkpoint)
         stderr_f = '../checkpoints/{}/stderr.log'.format(options.checkpoint)
+        os.makedirs(checkpoint_path)  # exist not ok
+        th.save(options, os.path.join(checkpoint_path, 'options.pkl'))
         with tee.StdoutTee(stdout_f), tee.StderrTee(stderr_f):
-            print('seed:',seed)
-            train(model, classifier)
+            model = init_model(options)
+            model = model.to(device)
+            print('seed:', seed)
+            train(model)
+
     else:
         print('No checkpoint is specified. abandoning all model checkpoints and logs')
-        model, classifier = init_model(options)
+        model = init_model(options)
         model = model.to(device)
-        classifier = classifier.to(device)
-        train(model, classifier)
+        train(model)
