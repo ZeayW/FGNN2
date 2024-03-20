@@ -5,12 +5,12 @@ This is the official open source repository for "FGNN2: a Powerful Pre-training 
 The experiments are conducted on Linux, with Python version 3.7.13, PyTorch version 1.13.0, and Dgl version 0.8.1.
  
 ## Pretraining Dataset
-Please refer to [our Dataset repo](https://github.com/FGNN2/FGNN2_pretraindata) for download instructions and documentation.
+Please refer to [our Pretraining Dataset repo](https://github.com/FGNN2/FGNN2_pretraindata) for download instructions and documentation.
 
 ## Pretrain
 First, download the pretaining dataset and extract it to `<repo root>/datasets/pretrain_data/`.
 
-You can also choose to generate the pretraining dataset using the rawdata provided. Your can first extract the rwadata `<repo root>/rawdata/pretrain_data/`, go to the folder `<repo root>/src` and run the following command for i = 4...7
+You can also choose to generate the pretraining dataset using the rawdata provided. You can first extract the rawdata to `<repo root>/rawdata/pretrain_data/`, go to the folder `<repo root>/src` and run the following command for i = 4...7
 
 ```shell
 python pretrain_dataparser.py --rawdata_path ../rawdata/pretrain_data --datapath ../datasets/pretrain_data/ --num_input i
@@ -28,7 +28,7 @@ We have also provided our pretrained weight, which can be downloaded [here]().
 
 Here we show an example application of our pretrained FGNN2 model on the netlist classification task. Suppose that the pretrained weight is put under `<repo root>/checkpoints/example/final.pth`.
 
-Firstly, upzip the file `<repo root>/data_global.zip` and put it to `<repo root>/datasets/global_data/`.
+Firstly, download the global task dataset [here]() and extract it to `<repo root>/datasets/global_data/`.
 
 go to the folder `<repo root>/src` and run the following command:
 
