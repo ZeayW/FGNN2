@@ -26,7 +26,7 @@ We have also provided our pretrained weight, which can be downloaded [here](http
 
 ## Downstream task
 
-Here we show an example application of our pretrained FGNN2 model on the netlist classification task. Suppose that the pretrained weight is put under `<repo root>/checkpoints/example/final.pth`.
+Here we show an example application of our pretrained FGNN2 model on the netlist classification task. Suppose that the pretrained weight is put under `<repo root>/checkpoints/example/weight.pth`.
 
 Firstly, download the global task dataset [here](https://drive.google.com/file/d/1C5ZTyWL2yU9QBV7L3gP4J4zhfiypzoxl/view?usp=share_link) and extract it to `<repo root>/datasets/global_data/`.
 
