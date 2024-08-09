@@ -1,7 +1,14 @@
 # FGNN2
 This is the official open source repository for the paper
+
 **[Functionality matters in netlist representation learning](https://dl.acm.org/doi/pdf/10.1145/3489517.3530410)**, ACM/IEEE Design Automation Conference (**DAC**), 2022.
+
+Ziyi Wang, Chen Bai, Zhuolun He, Guangliang Zhang, Qiang Xu, Tsung-Yi Ho, Yu Huang, Bei Yu
+
 and **[FGNN2: a Powerful Pre-training Framework for Learning the Logic Functionality of Circuits](https://ieeexplore.ieee.org/stamp/stamp.jsp?arnumber=10609964)**, IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems (**TCAD**), 2024.
+
+Ziyi Wang, Chen Bai, Zhuolun He, Guangliang Zhang, Qiang Xu, Tsung-Yi Ho, Yu Huang, Bei Yu
+
 
 ## Setup
 The experiments are conducted on Linux, with Python version 3.7.13, PyTorch version 1.13.0, and Dgl version 0.8.1.
