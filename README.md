@@ -1,5 +1,37 @@
 # FGNN2
-This is the official open source repository for "FGNN2: a Powerful Pre-training Framework for Learning the Logic Functionality of Circuits".
+This is the official open source repository for the paper
+
+**[Functionality matters in netlist representation learning](https://dl.acm.org/doi/pdf/10.1145/3489517.3530410)**, ACM/IEEE Design Automation Conference (**DAC**), 2022.
+
+Ziyi Wang, Chen Bai, Zhuolun He, Guangliang Zhang, Qiang Xu, Tsung-Yi Ho, Yu Huang, Bei Yu
+
+Citation:
+
+```
+@inproceedings{wang-dac2022-fgnn,
+    title={Functionality matters in netlist representation learning},
+    author={Wang, Ziyi and Bai, Chen and He, Zhuolun and Zhang, Guangliang and Xu, Qiang and Ho, Tsung-Yi and Yu, Bei and Huang, Yu},
+    booktitle=ACM/IEEE Design Automation Conference,
+    pages={61--66},
+    year={2022}
+}
+```
+
+and **[FGNN2: a Powerful Pre-training Framework for Learning the Logic Functionality of Circuits](https://ieeexplore.ieee.org/stamp/stamp.jsp?arnumber=10609964)**, IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems (**TCAD**), 2024.
+
+Ziyi Wang, Chen Bai, Zhuolun He, Guangliang Zhang, Qiang Xu, Tsung-Yi Ho, Yu Huang, Bei Yu
+
+Citation:
+
+```
+@article{wang-tcad24-fgnn2,
+    title={FGNN2: a Powerful Pre-training Framework for Learning the Logic Functionality of Circuits},
+    author={Wang, Ziyi and Bai, Chen and He, Zhuolun and Zhang, Guangliang and Xu, Qiang and Ho, Tsung-Yi and Yu, Bei and Huang, Yu},
+    journal=IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems,
+    year={2024}
+}
+```
+
 
 ## Setup
 The experiments are conducted on Linux, with Python version 3.7.13, PyTorch version 1.13.0, and Dgl version 0.8.1.
