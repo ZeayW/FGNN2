@@ -1,6 +1,5 @@
 from dataset_gcl import *
 from options import get_options
-from model import *
 from FunctionConv import *
 import dgl
 import pickle
