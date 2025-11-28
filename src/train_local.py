@@ -1,4 +1,4 @@
-from dataset_gcl import *
+from model import *
 from options import get_options
 from FunctionConv import *
 import dgl
@@ -12,6 +12,7 @@ from random import shuffle
 import random
 import torch as th
 from MyDataLoader2 import *
+import tee
 
 def DAG2UDG(g):
     r"""
@@ -299,7 +300,7 @@ def init_model(options):
             flag_proj=options.flag_proj,
             flag_inv = options.flag_inv
         )
-    mlp = MLP(model.out_dim, int(model.out_dim/ 2), int(model.out_dim / 2),options.nlabels,negative_slope=options.neg_slope,dropout=True)
+    mlp = MLP(model.out_dim, int(model.out_dim/ 2), int(model.out_dim / 2),options.nlabels,negative_slope=0.01,dropout=True)
     #mlp = MLP(model.out_dim, int(model.out_dim/2), options.nlabels,negative_slope=0)
     print(model)
     if options.pre_train:

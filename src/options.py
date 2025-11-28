@@ -3,6 +3,7 @@ import argparse
 
 def get_options(args=None):
     parser = argparse.ArgumentParser()
+
     parser.add_argument('--flag_inv',action='store_true',help='control whether use inv for PO')
     parser.add_argument('--flag_proj', action='store_true', help='control whether use a projection head')
 
@@ -18,12 +19,12 @@ def get_options(args=None):
     parser.add_argument("--ntypes", type=int, help='the number of gate types. Type: int', default=10)
     parser.add_argument("--learning_rate", type=float, help = 'the learning rate for training. Type: float.',default=1e-3)
     parser.add_argument("--batch_size", type=int, help = 'the number of samples in each training batch. Type: int',default=1024)
-    parser.add_argument("--num_epoch", type=int, help='Type: int; number of epoches that the training procedure runs. Type: int',default=1500)
-    parser.add_argument("--in_dim", type=int, help='the dimension of the input feature. Type: int',default=9)
+    parser.add_argument("--num_epoch", type=int, help='Type: int; number of epoches that the training procedure runs. Type: int',default=200)
+    parser.add_argument("--in_dim", type=int, help='the dimension of the input feature. Type: int',default=2)
     parser.add_argument("--out_dim", type=int, help='the dimension of the output embedding. Type: int', default=256)
     parser.add_argument("--hidden_dim", type=int, help='the dimension of the intermediate GNN layers. Type: int',default=256)
-    parser.add_argument("--out_nlayers", type=int,help='number of GNN layers for the fanout direction. Type: int',default=2)
-    parser.add_argument("--in_nlayers", type=int,help='number of GNN layers for the fanin direction. Type: int',default=2)
+    parser.add_argument("--out_nlayers", type=int,help='number of GNN layers for the fanout direction. Type: int',default=0)
+    parser.add_argument("--in_nlayers", type=int,help='number of GNN layers for the fanin direction. Type: int',default=5)
     parser.add_argument("--gcn_dropout", type=float,help='dropout rate for GNN layers. Type: float', default=0)
     parser.add_argument("--mlp_dropout", type=float, help='dropout rate for mlp. Type: float',default=0)
     parser.add_argument("--weight_decay", type=float, help='weight decay. Type: float',default=0)
@@ -40,7 +41,7 @@ def get_options(args=None):
     parser.add_argument('--balanced',action='store_true',help = 'decide whether to balance the training dataset (using oversampling) or not; Type: store_true')
     parser.add_argument('--label',type=str,help='The target label. Valid values: ["in","out"]. Type: str',default='in')
     parser.add_argument('--nlabels',type=int,help='number of prediction classes. Type: int',default=2)
-    parser.add_argument('--os_rate',help='the oversampling rate. Type: float',type=float,default=1)
+    parser.add_argument('--os_rate',help='the oversampling rate. Type: float',type=float,default=1.5)
     parser.add_argument('--beta',type=float,default=0.5,help='choose the threshold for binary classification to make a trade-off between recall and precision. Type: float')
     parser.add_argument('--datapath',type=str,help='the directory that contains the dataset. Type: str',default='../data/arith_blocks')
     parser.add_argument('--val_netlist_path',type=str,help='the directory that contains the validation netlists. Type: str',default='../dc/rocket')
