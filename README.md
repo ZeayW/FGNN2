@@ -34,7 +34,7 @@ Citation:
 
 
 ## Setup
-The experiments are conducted on Linux, with Python version 3.7.13, PyTorch version 1.13.0, and Dgl version 0.8.1.
+The pretraining and global downstream tasks are conducted on Linux, with Python version 3.7.13, PyTorch version 1.13.0, and Dgl version 0.8.1. The local task flow is built with PyTorch version 1.7.0, and Dgl version 0.5.3.
  
 ## Pretraining Dataset
 Please refer to [our Pretraining Dataset repo](https://github.com/FGNN2/FGNN2_pretraindata) for download instructions and documentation.
